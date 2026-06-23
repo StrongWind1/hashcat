@@ -98,7 +98,7 @@ static bool is_same_device (const hc_device_param_t *src, const hc_device_param_
   return true;
 }
 
-static const int kern_run_cnt = 15;
+static const int kern_run_cnt = 22;
 
 static const int kern_run_all[] =
 {
@@ -117,6 +117,13 @@ static const int kern_run_all[] =
   KERN_RUN_AUX2,
   KERN_RUN_AUX3,
   KERN_RUN_AUX4,
+  KERN_RUN_AUX5,
+  KERN_RUN_AUX6,
+  KERN_RUN_AUX7,
+  KERN_RUN_AUX8,
+  KERN_RUN_AUX9,
+  KERN_RUN_AUX10,
+  KERN_RUN_AUX11,
 };
 
 #if defined (__APPLE__)
@@ -139,6 +146,13 @@ static mtl_pipeline metal_pipeline_with_id (hc_device_param_t *device_param, con
     case KERN_RUN_AUX2:   return device_param->metal_pipeline_aux1;   break;
     case KERN_RUN_AUX3:   return device_param->metal_pipeline_aux1;   break;
     case KERN_RUN_AUX4:   return device_param->metal_pipeline_aux1;   break;
+    case KERN_RUN_AUX5:   return device_param->metal_pipeline_aux5;   break;
+    case KERN_RUN_AUX6:   return device_param->metal_pipeline_aux6;   break;
+    case KERN_RUN_AUX7:   return device_param->metal_pipeline_aux7;   break;
+    case KERN_RUN_AUX8:   return device_param->metal_pipeline_aux8;   break;
+    case KERN_RUN_AUX9:   return device_param->metal_pipeline_aux9;   break;
+    case KERN_RUN_AUX10:  return device_param->metal_pipeline_aux10;  break;
+    case KERN_RUN_AUX11:  return device_param->metal_pipeline_aux11;  break;
   }
 
   return NULL;
@@ -164,6 +178,13 @@ static cl_kernel opencl_kernel_with_id (hc_device_param_t *device_param, const i
     case KERN_RUN_AUX2:   return device_param->opencl_kernel_aux1;   break;
     case KERN_RUN_AUX3:   return device_param->opencl_kernel_aux1;   break;
     case KERN_RUN_AUX4:   return device_param->opencl_kernel_aux1;   break;
+    case KERN_RUN_AUX5:   return device_param->opencl_kernel_aux5;   break;
+    case KERN_RUN_AUX6:   return device_param->opencl_kernel_aux6;   break;
+    case KERN_RUN_AUX7:   return device_param->opencl_kernel_aux7;   break;
+    case KERN_RUN_AUX8:   return device_param->opencl_kernel_aux8;   break;
+    case KERN_RUN_AUX9:   return device_param->opencl_kernel_aux9;   break;
+    case KERN_RUN_AUX10:  return device_param->opencl_kernel_aux10;  break;
+    case KERN_RUN_AUX11:  return device_param->opencl_kernel_aux11;  break;
   }
 
   return NULL;
@@ -188,6 +209,13 @@ static hipFunction_t hip_function_with_id (hc_device_param_t *device_param, cons
     case KERN_RUN_AUX2:   return device_param->hip_function_aux2;   break;
     case KERN_RUN_AUX3:   return device_param->hip_function_aux3;   break;
     case KERN_RUN_AUX4:   return device_param->hip_function_aux4;   break;
+    case KERN_RUN_AUX5:   return device_param->hip_function_aux5;   break;
+    case KERN_RUN_AUX6:   return device_param->hip_function_aux6;   break;
+    case KERN_RUN_AUX7:   return device_param->hip_function_aux7;   break;
+    case KERN_RUN_AUX8:   return device_param->hip_function_aux8;   break;
+    case KERN_RUN_AUX9:   return device_param->hip_function_aux9;   break;
+    case KERN_RUN_AUX10:  return device_param->hip_function_aux10;  break;
+    case KERN_RUN_AUX11:  return device_param->hip_function_aux11;  break;
   }
 
   return NULL;
@@ -212,6 +240,13 @@ static CUfunction cuda_function_with_id (hc_device_param_t *device_param, const 
     case KERN_RUN_AUX2:   return device_param->cuda_function_aux2;   break;
     case KERN_RUN_AUX3:   return device_param->cuda_function_aux3;   break;
     case KERN_RUN_AUX4:   return device_param->cuda_function_aux4;   break;
+    case KERN_RUN_AUX5:   return device_param->cuda_function_aux5;   break;
+    case KERN_RUN_AUX6:   return device_param->cuda_function_aux6;   break;
+    case KERN_RUN_AUX7:   return device_param->cuda_function_aux7;   break;
+    case KERN_RUN_AUX8:   return device_param->cuda_function_aux8;   break;
+    case KERN_RUN_AUX9:   return device_param->cuda_function_aux9;   break;
+    case KERN_RUN_AUX10:  return device_param->cuda_function_aux10;  break;
+    case KERN_RUN_AUX11:  return device_param->cuda_function_aux11;  break;
   }
 
   return NULL;
@@ -2586,6 +2621,34 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
       kernel_threads     = device_param->kernel_wgs_aux4;
       dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux4;
       break;
+    case KERN_RUN_AUX5:
+      kernel_threads     = device_param->kernel_wgs_aux5;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux5;
+      break;
+    case KERN_RUN_AUX6:
+      kernel_threads     = device_param->kernel_wgs_aux6;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux6;
+      break;
+    case KERN_RUN_AUX7:
+      kernel_threads     = device_param->kernel_wgs_aux7;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux7;
+      break;
+    case KERN_RUN_AUX8:
+      kernel_threads     = device_param->kernel_wgs_aux8;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux8;
+      break;
+    case KERN_RUN_AUX9:
+      kernel_threads     = device_param->kernel_wgs_aux9;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux9;
+      break;
+    case KERN_RUN_AUX10:
+      kernel_threads     = device_param->kernel_wgs_aux10;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux10;
+      break;
+    case KERN_RUN_AUX11:
+      kernel_threads     = device_param->kernel_wgs_aux11;
+      dynamic_shared_mem = device_param->kernel_dynamic_local_mem_size_aux11;
+      break;
   }
 
   if ((hashconfig->opts_type & OPTS_TYPE_DYNAMIC_SHARED) == 0)
@@ -2633,6 +2696,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
       case KERN_RUN_AUX2:   cuda_function = device_param->cuda_function_aux2;   break;
       case KERN_RUN_AUX3:   cuda_function = device_param->cuda_function_aux3;   break;
       case KERN_RUN_AUX4:   cuda_function = device_param->cuda_function_aux4;   break;
+      case KERN_RUN_AUX5:   cuda_function = device_param->cuda_function_aux5;   break;
+      case KERN_RUN_AUX6:   cuda_function = device_param->cuda_function_aux6;   break;
+      case KERN_RUN_AUX7:   cuda_function = device_param->cuda_function_aux7;   break;
+      case KERN_RUN_AUX8:   cuda_function = device_param->cuda_function_aux8;   break;
+      case KERN_RUN_AUX9:   cuda_function = device_param->cuda_function_aux9;   break;
+      case KERN_RUN_AUX10:  cuda_function = device_param->cuda_function_aux10;  break;
+      case KERN_RUN_AUX11:  cuda_function = device_param->cuda_function_aux11;  break;
     }
 
     if (hc_cuMemcpyHtoD (hashcat_ctx, device_param->cuda_d_kernel_param, &device_param->kernel_param, device_param->size_kernel_params) == -1) return -1;
@@ -2752,6 +2822,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
       case KERN_RUN_AUX2:   hip_function = device_param->hip_function_aux2;   break;
       case KERN_RUN_AUX3:   hip_function = device_param->hip_function_aux3;   break;
       case KERN_RUN_AUX4:   hip_function = device_param->hip_function_aux4;   break;
+      case KERN_RUN_AUX5:   hip_function = device_param->hip_function_aux5;   break;
+      case KERN_RUN_AUX6:   hip_function = device_param->hip_function_aux6;   break;
+      case KERN_RUN_AUX7:   hip_function = device_param->hip_function_aux7;   break;
+      case KERN_RUN_AUX8:   hip_function = device_param->hip_function_aux8;   break;
+      case KERN_RUN_AUX9:   hip_function = device_param->hip_function_aux9;   break;
+      case KERN_RUN_AUX10:  hip_function = device_param->hip_function_aux10;  break;
+      case KERN_RUN_AUX11:  hip_function = device_param->hip_function_aux11;  break;
     }
 
     if (hc_hipMemcpyHtoD (hashcat_ctx, device_param->hip_d_kernel_param, &device_param->kernel_param, device_param->size_kernel_params) == -1) return -1;
@@ -2876,6 +2953,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
       case KERN_RUN_AUX2:   metal_pipeline = device_param->metal_pipeline_aux2;   break;
       case KERN_RUN_AUX3:   metal_pipeline = device_param->metal_pipeline_aux3;   break;
       case KERN_RUN_AUX4:   metal_pipeline = device_param->metal_pipeline_aux4;   break;
+      case KERN_RUN_AUX5:   metal_pipeline = device_param->metal_pipeline_aux5;   break;
+      case KERN_RUN_AUX6:   metal_pipeline = device_param->metal_pipeline_aux6;   break;
+      case KERN_RUN_AUX7:   metal_pipeline = device_param->metal_pipeline_aux7;   break;
+      case KERN_RUN_AUX8:   metal_pipeline = device_param->metal_pipeline_aux8;   break;
+      case KERN_RUN_AUX9:   metal_pipeline = device_param->metal_pipeline_aux9;   break;
+      case KERN_RUN_AUX10:  metal_pipeline = device_param->metal_pipeline_aux10;  break;
+      case KERN_RUN_AUX11:  metal_pipeline = device_param->metal_pipeline_aux11;  break;
     }
 
     if (hc_mtlMemcpyHtoD (hashcat_ctx, device_param->metal_device, device_param->metal_command_queue, device_param->metal_d_kernel_param, 0, &device_param->kernel_param, device_param->size_kernel_params) == -1) return -1;
@@ -3049,6 +3133,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
       case KERN_RUN_AUX2:   opencl_kernel = device_param->opencl_kernel_aux2;   break;
       case KERN_RUN_AUX3:   opencl_kernel = device_param->opencl_kernel_aux3;   break;
       case KERN_RUN_AUX4:   opencl_kernel = device_param->opencl_kernel_aux4;   break;
+      case KERN_RUN_AUX5:   opencl_kernel = device_param->opencl_kernel_aux5;   break;
+      case KERN_RUN_AUX6:   opencl_kernel = device_param->opencl_kernel_aux6;   break;
+      case KERN_RUN_AUX7:   opencl_kernel = device_param->opencl_kernel_aux7;   break;
+      case KERN_RUN_AUX8:   opencl_kernel = device_param->opencl_kernel_aux8;   break;
+      case KERN_RUN_AUX9:   opencl_kernel = device_param->opencl_kernel_aux9;   break;
+      case KERN_RUN_AUX10:  opencl_kernel = device_param->opencl_kernel_aux10;  break;
+      case KERN_RUN_AUX11:  opencl_kernel = device_param->opencl_kernel_aux11;  break;
     }
 
     for (u32 i = 0; i <= 24; i++)
@@ -3173,6 +3264,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
             case KERN_RUN_AUX2:   if (device_param->exec_us_prev_aux2[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux2[iterationm]   * device_param->spin_damp)); break;
             case KERN_RUN_AUX3:   if (device_param->exec_us_prev_aux3[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux3[iterationm]   * device_param->spin_damp)); break;
             case KERN_RUN_AUX4:   if (device_param->exec_us_prev_aux4[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux4[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX5:   if (device_param->exec_us_prev_aux5[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux5[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX6:   if (device_param->exec_us_prev_aux6[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux6[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX7:   if (device_param->exec_us_prev_aux7[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux7[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX8:   if (device_param->exec_us_prev_aux8[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux8[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX9:   if (device_param->exec_us_prev_aux9[iterationm]   > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux9[iterationm]   * device_param->spin_damp)); break;
+            case KERN_RUN_AUX10:  if (device_param->exec_us_prev_aux10[iterationm]  > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux10[iterationm]  * device_param->spin_damp)); break;
+            case KERN_RUN_AUX11:  if (device_param->exec_us_prev_aux11[iterationm]  > 0) usleep ((useconds_t) (device_param->exec_us_prev_aux11[iterationm]  * device_param->spin_damp)); break;
           }
         }
         else
@@ -3226,6 +3324,13 @@ int run_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, con
           case KERN_RUN_AUX2:   device_param->exec_us_prev_aux2[iterationm]   = exec_us; break;
           case KERN_RUN_AUX3:   device_param->exec_us_prev_aux3[iterationm]   = exec_us; break;
           case KERN_RUN_AUX4:   device_param->exec_us_prev_aux4[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX5:   device_param->exec_us_prev_aux5[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX6:   device_param->exec_us_prev_aux6[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX7:   device_param->exec_us_prev_aux7[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX8:   device_param->exec_us_prev_aux8[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX9:   device_param->exec_us_prev_aux9[iterationm]   = exec_us; break;
+          case KERN_RUN_AUX10:  device_param->exec_us_prev_aux10[iterationm]  = exec_us; break;
+          case KERN_RUN_AUX11:  device_param->exec_us_prev_aux11[iterationm]  = exec_us; break;
         }
       }
     }
@@ -11097,6 +11202,74 @@ static int backend_session_setup_cuda_kernel_types (hashcat_ctx_t *hashcat_ctx, 
 
       device_param->kernel_preferred_wgs_multiple_aux4 = device_param->cuda_warp_size;
     }
+
+    // extended aux5..aux11 (used by mode 90005); gated on DEEP_COMP, tolerant of modes without these symbols
+
+    if (kern_type == 90005)  // only mode 90005 has aux5..aux11 kernels
+    {
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux5", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux5, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux5, &device_param->kernel_wgs_aux5) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux5, &device_param->kernel_local_mem_size_aux5) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux5 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux5;
+        device_param->kernel_preferred_wgs_multiple_aux5 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux6", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux6, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux6, &device_param->kernel_wgs_aux6) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux6, &device_param->kernel_local_mem_size_aux6) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux6 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux6;
+        device_param->kernel_preferred_wgs_multiple_aux6 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux7", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux7, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux7, &device_param->kernel_wgs_aux7) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux7, &device_param->kernel_local_mem_size_aux7) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux7 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux7;
+        device_param->kernel_preferred_wgs_multiple_aux7 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux8", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux8, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux8, &device_param->kernel_wgs_aux8) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux8, &device_param->kernel_local_mem_size_aux8) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux8 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux8;
+        device_param->kernel_preferred_wgs_multiple_aux8 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux9", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux9, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux9, &device_param->kernel_wgs_aux9) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux9, &device_param->kernel_local_mem_size_aux9) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux9 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux9;
+        device_param->kernel_preferred_wgs_multiple_aux9 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux10", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux10, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux10, &device_param->kernel_wgs_aux10) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux10, &device_param->kernel_local_mem_size_aux10) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux10 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux10;
+        device_param->kernel_preferred_wgs_multiple_aux10 = device_param->cuda_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux11", kern_type);
+      if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function_aux11, device_param->cuda_module, kernel_name) == 0)
+      {
+        if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function_aux11, &device_param->kernel_wgs_aux11) == -1) return -1;
+        if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function_aux11, &device_param->kernel_local_mem_size_aux11) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux11 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux11;
+        device_param->kernel_preferred_wgs_multiple_aux11 = device_param->cuda_warp_size;
+      }
+    }
   }
 
   //CL_rc = hc_clSetKernelArg (hashcat_ctx, device_param->opencl_kernel_decompress, 0, sizeof (cl_mem),   device_param->kernel_params_decompress[0]); if (CL_rc == -1) return -1;
@@ -11809,6 +11982,74 @@ static int backend_session_setup_hip_kernel_types (hashcat_ctx_t *hashcat_ctx, h
       device_param->kernel_dynamic_local_mem_size_aux4 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux4;
 
       device_param->kernel_preferred_wgs_multiple_aux4 = device_param->hip_warp_size;
+    }
+
+    // extended aux5..aux11 (used by mode 90005); gated on DEEP_COMP, tolerant of modes without these symbols
+
+    if (kern_type == 90005)  // only mode 90005 has aux5..aux11 kernels
+    {
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux5", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux5, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux5, &device_param->kernel_wgs_aux5) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux5, &device_param->kernel_local_mem_size_aux5) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux5 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux5;
+        device_param->kernel_preferred_wgs_multiple_aux5 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux6", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux6, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux6, &device_param->kernel_wgs_aux6) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux6, &device_param->kernel_local_mem_size_aux6) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux6 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux6;
+        device_param->kernel_preferred_wgs_multiple_aux6 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux7", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux7, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux7, &device_param->kernel_wgs_aux7) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux7, &device_param->kernel_local_mem_size_aux7) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux7 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux7;
+        device_param->kernel_preferred_wgs_multiple_aux7 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux8", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux8, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux8, &device_param->kernel_wgs_aux8) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux8, &device_param->kernel_local_mem_size_aux8) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux8 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux8;
+        device_param->kernel_preferred_wgs_multiple_aux8 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux9", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux9, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux9, &device_param->kernel_wgs_aux9) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux9, &device_param->kernel_local_mem_size_aux9) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux9 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux9;
+        device_param->kernel_preferred_wgs_multiple_aux9 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux10", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux10, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux10, &device_param->kernel_wgs_aux10) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux10, &device_param->kernel_local_mem_size_aux10) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux10 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux10;
+        device_param->kernel_preferred_wgs_multiple_aux10 = device_param->hip_warp_size;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux11", kern_type);
+      if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function_aux11, device_param->hip_module, kernel_name) == 0)
+      {
+        if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function_aux11, &device_param->kernel_wgs_aux11) == -1) return -1;
+        if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function_aux11, &device_param->kernel_local_mem_size_aux11) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux11 = device_param->device_local_mem_size - device_param->kernel_local_mem_size_aux11;
+        device_param->kernel_preferred_wgs_multiple_aux11 = device_param->hip_warp_size;
+      }
     }
   }
 
@@ -12528,6 +12769,74 @@ static int backend_session_setup_metal_kernel_types (hashcat_ctx_t *hashcat_ctx,
 
       device_param->kernel_dynamic_local_mem_size_aux4 = 0;
     }
+
+    // extended aux5..aux11 (used by mode 90005); gated on DEEP_COMP, tolerant of modes without these symbols
+
+    if (kern_type == 90005)  // only mode 90005 has aux5..aux11 kernels
+    {
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux5", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux5, &device_param->metal_pipeline_aux5) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux5, &device_param->kernel_wgs_aux5) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux5, &device_param->kernel_local_mem_size_aux5) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux5, &device_param->kernel_preferred_wgs_multiple_aux5) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux5 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux6", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux6, &device_param->metal_pipeline_aux6) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux6, &device_param->kernel_wgs_aux6) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux6, &device_param->kernel_local_mem_size_aux6) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux6, &device_param->kernel_preferred_wgs_multiple_aux6) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux6 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux7", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux7, &device_param->metal_pipeline_aux7) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux7, &device_param->kernel_wgs_aux7) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux7, &device_param->kernel_local_mem_size_aux7) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux7, &device_param->kernel_preferred_wgs_multiple_aux7) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux7 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux8", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux8, &device_param->metal_pipeline_aux8) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux8, &device_param->kernel_wgs_aux8) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux8, &device_param->kernel_local_mem_size_aux8) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux8, &device_param->kernel_preferred_wgs_multiple_aux8) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux8 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux9", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux9, &device_param->metal_pipeline_aux9) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux9, &device_param->kernel_wgs_aux9) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux9, &device_param->kernel_local_mem_size_aux9) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux9, &device_param->kernel_preferred_wgs_multiple_aux9) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux9 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux10", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux10, &device_param->metal_pipeline_aux10) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux10, &device_param->kernel_wgs_aux10) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux10, &device_param->kernel_local_mem_size_aux10) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux10, &device_param->kernel_preferred_wgs_multiple_aux10) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux10 = 0;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux11", kern_type);
+      if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library, kernel_name, &device_param->metal_function_aux11, &device_param->metal_pipeline_aux11) == 0)
+      {
+        if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline_aux11, &device_param->kernel_wgs_aux11) == -1) return -1;
+        if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline_aux11, &device_param->kernel_local_mem_size_aux11) == -1) return -1;
+        if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline_aux11, &device_param->kernel_preferred_wgs_multiple_aux11) == -1) return -1;
+        device_param->kernel_dynamic_local_mem_size_aux11 = 0;
+      }
+    }
   }
 
   // MP start
@@ -13218,6 +13527,116 @@ static int backend_session_setup_opencl_kernel_types (hashcat_ctx_t *hashcat_ctx
       if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux4, &device_param->kernel_dynamic_local_mem_size_aux4) == -1) return -1;
 
       if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux4, &device_param->kernel_preferred_wgs_multiple_aux4) == -1) return -1;
+    }
+
+    // extended aux5..aux11 (used by mode 90005); gated on DEEP_COMP, tolerant of modes without these symbols.
+    // call clCreateKernel directly (not the hc_ wrapper) so a missing symbol is silently skipped instead of logged+fatal.
+
+    if (kern_type == 90005)  // only mode 90005 has aux5..aux11 kernels
+    {
+      backend_ctx_t *backend_ctx = ((hashcat_ctx_t *) hashcat_ctx)->backend_ctx;
+
+      OCL_PTR *ocl = (OCL_PTR *) backend_ctx->ocl;
+
+      cl_int CL_err;
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux5", kern_type);
+      device_param->opencl_kernel_aux5 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux5, &device_param->kernel_wgs_aux5) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux5, &device_param->kernel_local_mem_size_aux5) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux5, &device_param->kernel_dynamic_local_mem_size_aux5) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux5, &device_param->kernel_preferred_wgs_multiple_aux5) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux5 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux6", kern_type);
+      device_param->opencl_kernel_aux6 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux6, &device_param->kernel_wgs_aux6) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux6, &device_param->kernel_local_mem_size_aux6) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux6, &device_param->kernel_dynamic_local_mem_size_aux6) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux6, &device_param->kernel_preferred_wgs_multiple_aux6) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux6 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux7", kern_type);
+      device_param->opencl_kernel_aux7 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux7, &device_param->kernel_wgs_aux7) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux7, &device_param->kernel_local_mem_size_aux7) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux7, &device_param->kernel_dynamic_local_mem_size_aux7) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux7, &device_param->kernel_preferred_wgs_multiple_aux7) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux7 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux8", kern_type);
+      device_param->opencl_kernel_aux8 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux8, &device_param->kernel_wgs_aux8) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux8, &device_param->kernel_local_mem_size_aux8) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux8, &device_param->kernel_dynamic_local_mem_size_aux8) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux8, &device_param->kernel_preferred_wgs_multiple_aux8) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux8 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux9", kern_type);
+      device_param->opencl_kernel_aux9 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux9, &device_param->kernel_wgs_aux9) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux9, &device_param->kernel_local_mem_size_aux9) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux9, &device_param->kernel_dynamic_local_mem_size_aux9) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux9, &device_param->kernel_preferred_wgs_multiple_aux9) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux9 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux10", kern_type);
+      device_param->opencl_kernel_aux10 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux10, &device_param->kernel_wgs_aux10) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux10, &device_param->kernel_local_mem_size_aux10) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux10, &device_param->kernel_dynamic_local_mem_size_aux10) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux10, &device_param->kernel_preferred_wgs_multiple_aux10) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux10 = NULL;
+      }
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux11", kern_type);
+      device_param->opencl_kernel_aux11 = ocl->clCreateKernel (device_param->opencl_program, kernel_name, &CL_err);
+      if (CL_err == CL_SUCCESS)
+      {
+        if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel_aux11, &device_param->kernel_wgs_aux11) == -1) return -1;
+        if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux11, &device_param->kernel_local_mem_size_aux11) == -1) return -1;
+        if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel_aux11, &device_param->kernel_dynamic_local_mem_size_aux11) == -1) return -1;
+        if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel_aux11, &device_param->kernel_preferred_wgs_multiple_aux11) == -1) return -1;
+      }
+      else
+      {
+        device_param->opencl_kernel_aux11 = NULL;
+      }
     }
   }
 
@@ -17058,6 +17477,13 @@ void backend_session_destroy (hashcat_ctx_t *hashcat_ctx)
       device_param->cuda_function_aux2          = NULL;
       device_param->cuda_function_aux3          = NULL;
       device_param->cuda_function_aux4          = NULL;
+      device_param->cuda_function_aux5          = NULL;
+      device_param->cuda_function_aux6          = NULL;
+      device_param->cuda_function_aux7          = NULL;
+      device_param->cuda_function_aux8          = NULL;
+      device_param->cuda_function_aux9          = NULL;
+      device_param->cuda_function_aux10         = NULL;
+      device_param->cuda_function_aux11         = NULL;
 
       //if (device_param->cuda_context)         hc_cuCtxDestroy (hashcat_ctx, device_param->cuda_context);
       //device_param->cuda_context              = NULL;
@@ -17142,6 +17568,13 @@ void backend_session_destroy (hashcat_ctx_t *hashcat_ctx)
       device_param->hip_function_aux2          = NULL;
       device_param->hip_function_aux3          = NULL;
       device_param->hip_function_aux4          = NULL;
+      device_param->hip_function_aux5          = NULL;
+      device_param->hip_function_aux6          = NULL;
+      device_param->hip_function_aux7          = NULL;
+      device_param->hip_function_aux8          = NULL;
+      device_param->hip_function_aux9          = NULL;
+      device_param->hip_function_aux10         = NULL;
+      device_param->hip_function_aux11         = NULL;
     }
 
     #if defined (__APPLE__)
@@ -17210,6 +17643,13 @@ void backend_session_destroy (hashcat_ctx_t *hashcat_ctx)
       hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux2);
       hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux3);
       hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux4);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux5);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux6);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux7);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux8);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux9);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux10);
+      hc_mtlReleaseFunction  (hashcat_ctx, &device_param->metal_function_aux11);
 
       hc_mtlReleaseLibrary   (hashcat_ctx, &device_param->metal_library);
       hc_mtlReleaseLibrary   (hashcat_ctx, &device_param->metal_library_mp);
@@ -17289,6 +17729,13 @@ void backend_session_destroy (hashcat_ctx_t *hashcat_ctx)
       hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux2);
       hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux3);
       hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux4);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux5);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux6);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux7);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux8);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux9);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux10);
+      hc_clReleaseKernelPtr     (hashcat_ctx, &device_param->opencl_kernel_aux11);
 
       hc_clReleaseProgramPtr    (hashcat_ctx, &device_param->opencl_program);
       hc_clReleaseProgramPtr    (hashcat_ctx, &device_param->opencl_program_mp);

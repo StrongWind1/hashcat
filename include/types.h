@@ -305,6 +305,13 @@ typedef enum kern_run
   KERN_RUN_AUX2   = 7002,
   KERN_RUN_AUX3   = 7003,
   KERN_RUN_AUX4   = 7004,
+  KERN_RUN_AUX5   = 7005,
+  KERN_RUN_AUX6   = 7006,
+  KERN_RUN_AUX7   = 7007,
+  KERN_RUN_AUX8   = 7008,
+  KERN_RUN_AUX9   = 7009,
+  KERN_RUN_AUX10  = 7010,
+  KERN_RUN_AUX11  = 7011,
 
 } kern_run_t;
 
@@ -1332,6 +1339,13 @@ typedef struct hc_device_param
   u32     kernel_wgs_aux2;
   u32     kernel_wgs_aux3;
   u32     kernel_wgs_aux4;
+  u32     kernel_wgs_aux5;
+  u32     kernel_wgs_aux6;
+  u32     kernel_wgs_aux7;
+  u32     kernel_wgs_aux8;
+  u32     kernel_wgs_aux9;
+  u32     kernel_wgs_aux10;
+  u32     kernel_wgs_aux11;
 
   u32     kernel_preferred_wgs_multiple1;
   u32     kernel_preferred_wgs_multiple12;
@@ -1358,6 +1372,13 @@ typedef struct hc_device_param
   u32     kernel_preferred_wgs_multiple_aux2;
   u32     kernel_preferred_wgs_multiple_aux3;
   u32     kernel_preferred_wgs_multiple_aux4;
+  u32     kernel_preferred_wgs_multiple_aux5;
+  u32     kernel_preferred_wgs_multiple_aux6;
+  u32     kernel_preferred_wgs_multiple_aux7;
+  u32     kernel_preferred_wgs_multiple_aux8;
+  u32     kernel_preferred_wgs_multiple_aux9;
+  u32     kernel_preferred_wgs_multiple_aux10;
+  u32     kernel_preferred_wgs_multiple_aux11;
 
   u64     kernel_local_mem_size1;
   u64     kernel_local_mem_size12;
@@ -1384,6 +1405,13 @@ typedef struct hc_device_param
   u64     kernel_local_mem_size_aux2;
   u64     kernel_local_mem_size_aux3;
   u64     kernel_local_mem_size_aux4;
+  u64     kernel_local_mem_size_aux5;
+  u64     kernel_local_mem_size_aux6;
+  u64     kernel_local_mem_size_aux7;
+  u64     kernel_local_mem_size_aux8;
+  u64     kernel_local_mem_size_aux9;
+  u64     kernel_local_mem_size_aux10;
+  u64     kernel_local_mem_size_aux11;
 
   u64     kernel_dynamic_local_mem_size1;
   u64     kernel_dynamic_local_mem_size12;
@@ -1410,6 +1438,13 @@ typedef struct hc_device_param
   u64     kernel_dynamic_local_mem_size_aux2;
   u64     kernel_dynamic_local_mem_size_aux3;
   u64     kernel_dynamic_local_mem_size_aux4;
+  u64     kernel_dynamic_local_mem_size_aux5;
+  u64     kernel_dynamic_local_mem_size_aux6;
+  u64     kernel_dynamic_local_mem_size_aux7;
+  u64     kernel_dynamic_local_mem_size_aux8;
+  u64     kernel_dynamic_local_mem_size_aux9;
+  u64     kernel_dynamic_local_mem_size_aux10;
+  u64     kernel_dynamic_local_mem_size_aux11;
 
   u32     kernel_accel;
   u32     kernel_accel_prev;
@@ -1522,6 +1557,13 @@ typedef struct hc_device_param
   double  exec_us_prev_aux2[EXPECTED_ITERATIONS];
   double  exec_us_prev_aux3[EXPECTED_ITERATIONS];
   double  exec_us_prev_aux4[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux5[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux6[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux7[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux8[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux9[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux10[EXPECTED_ITERATIONS];
+  double  exec_us_prev_aux11[EXPECTED_ITERATIONS];
 
   // this is "current" speed
 
@@ -1650,6 +1692,13 @@ typedef struct hc_device_param
   CUfunction        cuda_function_aux2;
   CUfunction        cuda_function_aux3;
   CUfunction        cuda_function_aux4;
+  CUfunction        cuda_function_aux5;
+  CUfunction        cuda_function_aux6;
+  CUfunction        cuda_function_aux7;
+  CUfunction        cuda_function_aux8;
+  CUfunction        cuda_function_aux9;
+  CUfunction        cuda_function_aux10;
+  CUfunction        cuda_function_aux11;
 
   CUdeviceptr       cuda_d_pws_buf;
   CUdeviceptr       cuda_d_pws_amp_buf;
@@ -1733,6 +1782,13 @@ typedef struct hc_device_param
   hipFunction_t     hip_function_aux2;
   hipFunction_t     hip_function_aux3;
   hipFunction_t     hip_function_aux4;
+  hipFunction_t     hip_function_aux5;
+  hipFunction_t     hip_function_aux6;
+  hipFunction_t     hip_function_aux7;
+  hipFunction_t     hip_function_aux8;
+  hipFunction_t     hip_function_aux9;
+  hipFunction_t     hip_function_aux10;
+  hipFunction_t     hip_function_aux11;
 
   hipDeviceptr_t    hip_d_pws_buf;
   hipDeviceptr_t    hip_d_pws_amp_buf;
@@ -1828,6 +1884,13 @@ typedef struct hc_device_param
   mtl_function      metal_function_aux2;
   mtl_function      metal_function_aux3;
   mtl_function      metal_function_aux4;
+  mtl_function      metal_function_aux5;
+  mtl_function      metal_function_aux6;
+  mtl_function      metal_function_aux7;
+  mtl_function      metal_function_aux8;
+  mtl_function      metal_function_aux9;
+  mtl_function      metal_function_aux10;
+  mtl_function      metal_function_aux11;
 
   mtl_pipeline      metal_pipeline1;
   mtl_pipeline      metal_pipeline12;
@@ -1854,6 +1917,13 @@ typedef struct hc_device_param
   mtl_pipeline      metal_pipeline_aux2;
   mtl_pipeline      metal_pipeline_aux3;
   mtl_pipeline      metal_pipeline_aux4;
+  mtl_pipeline      metal_pipeline_aux5;
+  mtl_pipeline      metal_pipeline_aux6;
+  mtl_pipeline      metal_pipeline_aux7;
+  mtl_pipeline      metal_pipeline_aux8;
+  mtl_pipeline      metal_pipeline_aux9;
+  mtl_pipeline      metal_pipeline_aux10;
+  mtl_pipeline      metal_pipeline_aux11;
 
   mtl_mem_t         metal_d_pws_buf;
   mtl_mem_t         metal_d_pws_amp_buf;
@@ -1943,6 +2013,13 @@ typedef struct hc_device_param
   cl_kernel         opencl_kernel_aux2;
   cl_kernel         opencl_kernel_aux3;
   cl_kernel         opencl_kernel_aux4;
+  cl_kernel         opencl_kernel_aux5;
+  cl_kernel         opencl_kernel_aux6;
+  cl_kernel         opencl_kernel_aux7;
+  cl_kernel         opencl_kernel_aux8;
+  cl_kernel         opencl_kernel_aux9;
+  cl_kernel         opencl_kernel_aux10;
+  cl_kernel         opencl_kernel_aux11;
 
   cl_mem            opencl_d_pws_buf;
   cl_mem            opencl_d_pws_amp_buf;
