@@ -1143,13 +1143,37 @@ DECLSPEC int wpa_check_ft_eapol_sha384 (PRIVATE_AS const u32 *pmk, GLOBAL_AS con
     }                                                                                                 \
   }
 
-// Bind the constant-memory AES T-tables for the CMAC verifiers (types 5, 7).
+// Bind the AES T-tables for the CMAC verifiers (types 5, 7) in the address space
+// they expect (SHM_TYPE): under REAL_SHM (GPUs) that is LOCAL_AS, so copy the
+// constant tables into a local array; otherwise alias them in constant memory.
+// Passing constant tables to a local parameter was the mismatch that broke every
+// CMAC kernel build on GPU. Runs before any early return so SYNC_THREADS is uniform.
+#ifdef REAL_SHM
+#define WPA_AES_SHARED                                         \
+  const u64 lid = get_local_id (0);                            \
+  const u64 lsz = get_local_size (0);                          \
+  LOCAL_VK u32 s_te0[256];                                     \
+  LOCAL_VK u32 s_te1[256];                                     \
+  LOCAL_VK u32 s_te2[256];                                     \
+  LOCAL_VK u32 s_te3[256];                                     \
+  LOCAL_VK u32 s_te4[256];                                     \
+  for (u32 i = lid; i < 256; i += lsz)                         \
+  {                                                            \
+    s_te0[i] = te0[i];                                         \
+    s_te1[i] = te1[i];                                         \
+    s_te2[i] = te2[i];                                         \
+    s_te3[i] = te3[i];                                         \
+    s_te4[i] = te4[i];                                         \
+  }                                                            \
+  SYNC_THREADS ();
+#else
 #define WPA_AES_SHARED                                         \
   CONSTANT_AS u32a *s_te0 = te0;                               \
   CONSTANT_AS u32a *s_te1 = te1;                               \
   CONSTANT_AS u32a *s_te2 = te2;                               \
   CONSTANT_AS u32a *s_te3 = te3;                               \
   CONSTANT_AS u32a *s_te4 = te4;
+#endif
 
 // Switch the 2-digit type to its verifier and set `matched`. s_te* must be in
 // scope (via WPA_AES_SHARED) for the CMAC types 5 and 7.
