@@ -442,6 +442,12 @@ typedef enum kern_run
   KERN_RUN_AUX3   = 7003,
   KERN_RUN_AUX4   = 7004,
   KERN_RUN_AUX5   = 7005,
+  KERN_RUN_AUX6   = 7006,
+  KERN_RUN_AUX7   = 7007,
+  KERN_RUN_AUX8   = 7008,
+  KERN_RUN_AUX9   = 7009,
+  KERN_RUN_AUX10  = 7010,
+  KERN_RUN_AUX11  = 7011,
 
 } kern_run_t;
 
@@ -489,6 +495,12 @@ typedef enum hc_dev_kern
   HC_DEV_KERN_AUX3,
   HC_DEV_KERN_AUX4,
   HC_DEV_KERN_AUX5,
+  HC_DEV_KERN_AUX6,
+  HC_DEV_KERN_AUX7,
+  HC_DEV_KERN_AUX8,
+  HC_DEV_KERN_AUX9,
+  HC_DEV_KERN_AUX10,
+  HC_DEV_KERN_AUX11,
   HC_DEV_KERN_CNT,
 
 } hc_dev_kern_t;

@@ -653,6 +653,12 @@ static const hc_dev_kern_t kern_run_all[] =
   HC_DEV_KERN_AUX3,
   HC_DEV_KERN_AUX4,
   HC_DEV_KERN_AUX5,
+  HC_DEV_KERN_AUX6,
+  HC_DEV_KERN_AUX7,
+  HC_DEV_KERN_AUX8,
+  HC_DEV_KERN_AUX9,
+  HC_DEV_KERN_AUX10,
+  HC_DEV_KERN_AUX11,
 };
 
 static const int kern_run_cnt = sizeof (kern_run_all) / sizeof (kern_run_all[0]);
@@ -681,6 +687,12 @@ static hc_dev_kern_t kern_run_to_slot (const int kern_run)
     case KERN_RUN_AUX3:   return HC_DEV_KERN_AUX3;
     case KERN_RUN_AUX4:   return HC_DEV_KERN_AUX4;
     case KERN_RUN_AUX5:   return HC_DEV_KERN_AUX5;
+    case KERN_RUN_AUX6:   return HC_DEV_KERN_AUX6;
+    case KERN_RUN_AUX7:   return HC_DEV_KERN_AUX7;
+    case KERN_RUN_AUX8:   return HC_DEV_KERN_AUX8;
+    case KERN_RUN_AUX9:   return HC_DEV_KERN_AUX9;
+    case KERN_RUN_AUX10:  return HC_DEV_KERN_AUX10;
+    case KERN_RUN_AUX11:  return HC_DEV_KERN_AUX11;
   }
 
   return HC_DEV_KERN_CNT;
@@ -13101,10 +13113,78 @@ static int backend_session_setup_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_p
   return 0;
 }
 
+// Silent variant: returns 0 when the kernel symbol is absent, leaving the slot
+// zeroed.  Used for aux slots beyond the five that have their own OPTS_TYPE bits.
+
+static int backend_session_try_setup_kernel (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, const hc_dev_kern_t slot, const hc_dev_program_t program, const char *kernel_name)
+{
+  if (device_param->is_cuda == true)
+  {
+    if (hc_cuModuleGetFunction (hashcat_ctx, &device_param->cuda_function[slot], device_param->cuda_module[program], kernel_name) == -1) return 0;
+
+    if (get_cuda_kernel_wgs (hashcat_ctx, device_param->cuda_function[slot], &device_param->kernel_wgs[slot]) == -1) return -1;
+
+    if (get_cuda_kernel_local_mem_size (hashcat_ctx, device_param->cuda_function[slot], &device_param->kernel_local_mem_size[slot]) == -1) return -1;
+
+    device_param->kernel_dynamic_local_mem_size[slot] = device_param->device_local_mem_size - device_param->kernel_local_mem_size[slot];
+
+    device_param->kernel_preferred_wgs_multiple[slot] = device_param->cuda_warp_size;
+  }
+
+  if (device_param->is_hip == true)
+  {
+    if (hc_hipModuleGetFunction (hashcat_ctx, &device_param->hip_function[slot], device_param->hip_module[program], kernel_name) == -1) return 0;
+
+    if (get_hip_kernel_wgs (hashcat_ctx, device_param->hip_function[slot], &device_param->kernel_wgs[slot]) == -1) return -1;
+
+    if (get_hip_kernel_local_mem_size (hashcat_ctx, device_param->hip_function[slot], &device_param->kernel_local_mem_size[slot]) == -1) return -1;
+
+    device_param->kernel_dynamic_local_mem_size[slot] = device_param->device_local_mem_size - device_param->kernel_local_mem_size[slot];
+
+    device_param->kernel_preferred_wgs_multiple[slot] = device_param->hip_warp_size;
+  }
+
+  #if defined (__APPLE__)
+  if (device_param->is_metal == true)
+  {
+    if (hc_mtlCreateKernel (hashcat_ctx, device_param->metal_device, device_param->metal_library[program], kernel_name, &device_param->metal_function[slot], &device_param->metal_pipeline[slot]) == -1) return 0;
+
+    if (get_metal_kernel_wgs (hashcat_ctx, device_param->metal_pipeline[slot], &device_param->kernel_wgs[slot]) == -1) return -1;
+
+    if (get_metal_kernel_local_mem_size (hashcat_ctx, device_param->metal_pipeline[slot], &device_param->kernel_local_mem_size[slot]) == -1) return -1;
+
+    if (get_metal_kernel_preferred_wgs_multiple (hashcat_ctx, device_param->metal_pipeline[slot], &device_param->kernel_preferred_wgs_multiple[slot]) == -1) return -1;
+
+    device_param->kernel_dynamic_local_mem_size[slot] = 0;
+  }
+  #endif // __APPLE__
+
+  if (device_param->is_opencl == true)
+  {
+    if (hc_clCreateKernel (hashcat_ctx, device_param->opencl_program[program], kernel_name, &device_param->opencl_kernel[slot]) == -1) return 0;
+
+    if (get_opencl_kernel_wgs (hashcat_ctx, device_param, device_param->opencl_kernel[slot], &device_param->kernel_wgs[slot]) == -1) return -1;
+
+    if (get_opencl_kernel_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel[slot], &device_param->kernel_local_mem_size[slot]) == -1) return -1;
+
+    if (get_opencl_kernel_dynamic_local_mem_size (hashcat_ctx, device_param, device_param->opencl_kernel[slot], &device_param->kernel_dynamic_local_mem_size[slot]) == -1) return -1;
+
+    if (get_opencl_kernel_preferred_wgs_multiple (hashcat_ctx, device_param, device_param->opencl_kernel[slot], &device_param->kernel_preferred_wgs_multiple[slot]) == -1) return -1;
+  }
+
+  return 0;
+}
+
 #define SETUP_KERNEL(slot, program, name)                                                                     \
   do {                                                                                                        \
     const int rc_setup = backend_session_setup_kernel (hashcat_ctx, device_param, (slot), (program), (name));  \
     if (rc_setup != 0) return rc_setup;                                                                       \
+  } while (0)
+
+#define SETUP_KERNEL_OPTIONAL(slot, program, name)                                                                 \
+  do {                                                                                                             \
+    const int rc_setup = backend_session_try_setup_kernel (hashcat_ctx, device_param, (slot), (program), (name));   \
+    if (rc_setup != 0) return rc_setup;                                                                            \
   } while (0)
 
 // The kernels every run needs whatever the hash mode is. They come out of the shared program, which
@@ -13359,6 +13439,32 @@ static int backend_session_setup_kernel_types (hashcat_ctx_t *hashcat_ctx, hc_de
       snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux5", kern_type);
 
       SETUP_KERNEL (HC_DEV_KERN_AUX5, HC_DEV_PROGRAM_MAIN, kernel_name);
+    }
+
+    // aux6..aux11 — extended slots for modes whose deep_comp_kernel dispatches
+    // beyond aux5.  No OPTS_TYPE bits gate these (the 64-bit field is full);
+    // instead the symbols are loaded optionally when DEEP_COMP_KERNEL is set.
+    // Modes that lack these symbols simply leave the slot empty.
+
+    if (hashconfig->opts_type & OPTS_TYPE_DEEP_COMP_KERNEL)
+    {
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux6", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX6, HC_DEV_PROGRAM_MAIN, kernel_name);
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux7", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX7, HC_DEV_PROGRAM_MAIN, kernel_name);
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux8", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX8, HC_DEV_PROGRAM_MAIN, kernel_name);
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux9", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX9, HC_DEV_PROGRAM_MAIN, kernel_name);
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux10", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX10, HC_DEV_PROGRAM_MAIN, kernel_name);
+
+      snprintf (kernel_name, sizeof (kernel_name), "m%05u_aux11", kern_type);
+      SETUP_KERNEL_OPTIONAL (HC_DEV_KERN_AUX11, HC_DEV_PROGRAM_MAIN, kernel_name);
     }
   }
 
