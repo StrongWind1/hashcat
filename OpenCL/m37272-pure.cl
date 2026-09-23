@@ -156,24 +156,31 @@ DECLSPEC u32 nibble_to_hex_upper (const u32 n)
 
 DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, PRIVATE_AS u32 *out_buf, PRIVATE_AS u32 *out_len)
 {
-  // --- CreatePasswordVerifier_Method1 ([MS-OFFCRYPTO] Section 2.3.7.1) ---
+  // Method2 operates on ANSI passwords of length 1-15 ([MS-OFFCRYPTO] Section 2.3.7).
 
-  const u32 ansi_len = pw_len / 2;
+  if (pw_len == 0 || pw_len > 15)
+  {
+    out_buf[0] = 0; out_buf[1] = 0; out_buf[2] = 0; out_buf[3] = 0;
+    *out_len = 0;
+    return;
+  }
+
+  // --- CreatePasswordVerifier_Method1 ([MS-OFFCRYPTO] Section 2.3.7.1) ---
 
   u32 verifier = 0;
 
-  for (int idx = (int) ansi_len; idx >= 0; idx--)
+  for (int idx = (int) pw_len; idx >= 0; idx--)
   {
     u32 byte_val;
 
     if (idx == 0)
     {
-      byte_val = ansi_len & 0xff;
+      byte_val = pw_len & 0xff;
     }
     else
     {
       const u32 k = idx - 1;
-      byte_val = (pw_buf[k / 2] >> ((k % 2) * 16)) & 0xff;
+      byte_val = (pw_buf[k / 4] >> ((k % 4) * 8)) & 0xff;
     }
 
     const u32 wrapped = (verifier & 0x4000) ? 1 : 0;
@@ -186,12 +193,12 @@ DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, P
 
   // --- CreateXorKey_Method1 ([MS-OFFCRYPTO] Section 2.3.7.2) ---
 
-  u32 xor_key = m2_initial_code[ansi_len - 1];
+  u32 xor_key = m2_initial_code[pw_len - 1];
   u32 current = 0x68;
 
-  for (int idx = (int) ansi_len - 1; idx >= 0; idx--)
+  for (int idx = (int) pw_len - 1; idx >= 0; idx--)
   {
-    u32 c = (pw_buf[idx / 2] >> ((idx % 2) * 16)) & 0xff;
+    u32 c = (pw_buf[idx / 4] >> ((idx % 4) * 8)) & 0xff;
 
     for (int j = 0; j < 7; j++)
     {

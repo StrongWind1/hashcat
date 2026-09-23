@@ -79,26 +79,31 @@ DECLSPEC u32 nibble_to_hex_upper (const u32 n)
 
 DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, PRIVATE_AS u32 *out_buf, PRIVATE_AS u32 *out_len)
 {
-  // --- CreatePasswordVerifier_Method1 ([MS-OFFCRYPTO] Section 2.3.7.1) ---
-  // PasswordArray = [pw_len] ++ password_bytes, processed in reverse order.
-  // 15-bit rotate-left-1 with XOR, finalised by XOR 0xCE4B.
+  // Method2 operates on ANSI passwords of length 1-15 ([MS-OFFCRYPTO] Section 2.3.7).
 
-  const u32 ansi_len = pw_len / 2;
+  if (pw_len == 0 || pw_len > 15)
+  {
+    out_buf[0] = 0; out_buf[1] = 0; out_buf[2] = 0; out_buf[3] = 0;
+    *out_len = 0;
+    return;
+  }
+
+  // --- CreatePasswordVerifier_Method1 ([MS-OFFCRYPTO] Section 2.3.7.1) ---
 
   u32 verifier = 0;
 
-  for (int idx = (int) ansi_len; idx >= 0; idx--)
+  for (int idx = (int) pw_len; idx >= 0; idx--)
   {
     u32 byte_val;
 
     if (idx == 0)
     {
-      byte_val = ansi_len & 0xff;
+      byte_val = pw_len & 0xff;
     }
     else
     {
       const u32 k = idx - 1;
-      byte_val = (pw_buf[k / 2] >> ((k % 2) * 16)) & 0xff;
+      byte_val = (pw_buf[k / 4] >> ((k % 4) * 8)) & 0xff;
     }
 
     const u32 wrapped = (verifier & 0x4000) ? 1 : 0;
@@ -110,15 +115,13 @@ DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, P
   verifier ^= 0xce4b;
 
   // --- CreateXorKey_Method1 ([MS-OFFCRYPTO] Section 2.3.7.2) ---
-  // Seed from InitialCode[pw_len - 1], then walk XorMatrix downward from
-  // index 0x68, 7 conditional XOR iterations per password char in reverse.
 
-  u32 xor_key = m2_initial_code[ansi_len - 1];
+  u32 xor_key = m2_initial_code[pw_len - 1];
   u32 current = 0x68;
 
-  for (int idx = (int) ansi_len - 1; idx >= 0; idx--)
+  for (int idx = (int) pw_len - 1; idx >= 0; idx--)
   {
-    u32 c = (pw_buf[idx / 2] >> ((idx % 2) * 16)) & 0xff;
+    u32 c = (pw_buf[idx / 4] >> ((idx % 4) * 8)) & 0xff;
 
     for (int j = 0; j < 7; j++)
     {
@@ -135,13 +138,8 @@ DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, P
   xor_key &= 0xffff;
 
   // --- CreatePasswordVerifier_Method2 ([MS-OFFCRYPTO] Section 2.3.7.4) ---
-  // Combine XorKey (high 16 bits) and Method1 verifier (low 16 bits).
 
   const u32 method2 = (xor_key << 16) | (verifier & 0xffff);
-
-  // Render the 32-bit DWORD as 4 LE bytes, each byte to 2 uppercase hex
-  // ASCII chars. Result: 8 ASCII chars, UTF-16LE encoded to 16 bytes.
-  // Python reference: method2.to_bytes(4, "little").hex().upper()
 
   const u32 h0 = nibble_to_hex_upper ((method2 >>  4) & 0xf);
   const u32 h1 = nibble_to_hex_upper ((method2 >>  0) & 0xf);
@@ -151,9 +149,6 @@ DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, P
   const u32 h5 = nibble_to_hex_upper ((method2 >> 16) & 0xf);
   const u32 h6 = nibble_to_hex_upper ((method2 >> 28) & 0xf);
   const u32 h7 = nibble_to_hex_upper ((method2 >> 24) & 0xf);
-
-  // UTF-16LE encode: each ASCII char becomes a u16 (low byte = char, high = 0)
-  // pack two u16 per u32
 
   out_buf[0] = (h1 << 16) | h0;
   out_buf[1] = (h3 << 16) | h2;

@@ -76,9 +76,16 @@ DECLSPEC u32 nibble_to_hex_upper (const u32 n)
 
 DECLSPEC void method2_prestage (GLOBAL_AS const u32 *pw_buf, const u32 pw_len, PRIVATE_AS u32 *out_buf, PRIVATE_AS u32 *out_len)
 {
+  // Method2 operates on ANSI passwords of length 1-15 ([MS-OFFCRYPTO] Section 2.3.7).
+
+  if (pw_len == 0 || pw_len > 15)
+  {
+    out_buf[0] = 0; out_buf[1] = 0; out_buf[2] = 0; out_buf[3] = 0;
+    *out_len = 0;
+    return;
+  }
+
   // --- CreatePasswordVerifier_Method1 ([MS-OFFCRYPTO] Section 2.3.7.1) ---
-  // PasswordArray = [pw_len] ++ password_bytes, processed in reverse order.
-  // 15-bit rotate-left-1 with XOR, finalised by XOR 0xCE4B.
 
   u32 verifier = 0;
 
