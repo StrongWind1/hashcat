@@ -182,7 +182,7 @@ KERNEL_FQ KERNEL_FA void m37242_init (KERN_ATTR_TMPS_ESALT (office_protect_tmp_t
 
   sha512_update_global_swap (&ctx, salt_bufs[SALT_POS_HOST].salt_buf, salt_bufs[SALT_POS_HOST].salt_len);
 
-  sha512_update (&ctx, prestage_buf, prestage_len);
+  sha512_update_swap (&ctx, prestage_buf, prestage_len);
 
   sha512_final (&ctx);
 

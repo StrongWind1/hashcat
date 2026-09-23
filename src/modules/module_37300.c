@@ -374,11 +374,16 @@ static int parse_new_format (MAYBE_UNUSED const hashconfig_t *hashconfig, u32 *d
 
   salt->salt_iter = iterations - 1;
 
-  // salt
+  // salt (use hex_to_u32 to match backward compat parser byte layout)
   const u8 *salt_pos = token.buf[7];
   const int salt_len = token.len[7];
 
-  salt->salt_len = hex_decode (salt_pos, salt_len, (u8 *) salt->salt_buf);
+  salt->salt_len = salt_len / 2;
+
+  for (u32 i = 0; i < salt->salt_len / 4; i++)
+  {
+    salt->salt_buf[i] = hex_to_u32 (salt_pos + (i * 8));
+  }
 
   // iv
   const u8 *iv_pos = token.buf[8];
