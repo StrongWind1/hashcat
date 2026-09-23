@@ -463,7 +463,7 @@ KERNEL_FQ KERNEL_FA void m37031_aux1 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 {
 }
 
-// _aux2: Agile 3DES-112-CBC verification (2-key Triple DES)
+// _aux2: Agile 3DES-CBC verification (2-key or 3-key Triple DES)
 
 KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, office_open_t))
 {
@@ -562,10 +562,11 @@ KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   sha384_final (&ctx);
 
-  u64 digest0[2];
+  u64 digest0[3];
 
   digest0[0] = ctx.h[0];
   digest0[1] = ctx.h[1];
+  digest0[2] = ctx.h[2];
 
   w0[0] = h32_from_64_S (tmp[0]);
   w0[1] = l32_from_64_S (tmp[0]);
@@ -594,19 +595,29 @@ KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   sha384_final (&ctx);
 
-  u64 digest1[2];
+  u64 digest1[3];
 
   digest1[0] = ctx.h[0];
   digest1[1] = ctx.h[1];
+  digest1[2] = ctx.h[2];
 
-  // 3DES-112 key: K1 = first 8 bytes, K2 = second 8 bytes
+  const u32 digest_cur = DIGESTS_OFFSET_HOST + LOOP_POS;
 
-  u32 K1c[16], K1d[16], K2c[16], K2d[16];
+  const u32 key_bits = esalt_bufs[digest_cur].key_bits;
+
+  u32 K1c[16], K1d[16], K2c[16], K2d[16], K3c[16], K3d[16];
 
   _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest0[0])), hc_swap32_S (l32_from_64_S (digest0[0])), K1c, K1d, s_skb);
   _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest0[1])), hc_swap32_S (l32_from_64_S (digest0[1])), K2c, K2d, s_skb);
 
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + LOOP_POS;
+  if (key_bits >= 192)
+  {
+    _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest0[2])), hc_swap32_S (l32_from_64_S (digest0[2])), K3c, K3d, s_skb);
+  }
+  else
+  {
+    for (u32 i = 0; i < 16; i++) { K3c[i] = K1c[i]; K3d[i] = K1d[i]; }
+  }
 
   u32 ct[4];
 
@@ -615,30 +626,33 @@ KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
   ct[2] = hc_swap32_S (esalt_bufs[digest_cur].encryptedVerifier[2]);
   ct[3] = hc_swap32_S (esalt_bufs[digest_cur].encryptedVerifier[3]);
 
+  u32 iv0 = hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[0]);
+  u32 iv1 = hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[1]);
+
   u32 des_in[2];
   u32 des_out[2];
   u32 des_tmp[2];
 
-  // 3DES-EDE CBC decrypt block 0
+  // 3DES-EDE CBC decrypt block 0: D(K3) -> E(K2) -> D(K1)
 
   des_in[0] = ct[0];
   des_in[1] = ct[1];
 
-  _des_crypt_decrypt (des_out, des_in, K1c, K1d, s_SPtrans);
+  _des_crypt_decrypt (des_out, des_in, K3c, K3d, s_SPtrans);
   _des_crypt_encrypt (des_tmp, des_out, K2c, K2d, s_SPtrans);
   _des_crypt_decrypt (des_out, des_tmp, K1c, K1d, s_SPtrans);
 
   u32 pt[4];
 
-  pt[0] = hc_swap32_S (des_out[0] ^ hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[0]));
-  pt[1] = hc_swap32_S (des_out[1] ^ hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[1]));
+  pt[0] = hc_swap32_S (des_out[0] ^ iv0);
+  pt[1] = hc_swap32_S (des_out[1] ^ iv1);
 
   // 3DES-EDE CBC decrypt block 1
 
   des_in[0] = ct[2];
   des_in[1] = ct[3];
 
-  _des_crypt_decrypt (des_out, des_in, K1c, K1d, s_SPtrans);
+  _des_crypt_decrypt (des_out, des_in, K3c, K3d, s_SPtrans);
   _des_crypt_encrypt (des_tmp, des_out, K2c, K2d, s_SPtrans);
   _des_crypt_decrypt (des_out, des_tmp, K1c, K1d, s_SPtrans);
 
@@ -670,16 +684,25 @@ KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
   _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest1[0])), hc_swap32_S (l32_from_64_S (digest1[0])), K1c, K1d, s_skb);
   _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest1[1])), hc_swap32_S (l32_from_64_S (digest1[1])), K2c, K2d, s_skb);
 
-  // 3DES-EDE CBC encrypt block 0
+  if (key_bits >= 192)
+  {
+    _des_crypt_keysetup (hc_swap32_S (h32_from_64_S (digest1[2])), hc_swap32_S (l32_from_64_S (digest1[2])), K3c, K3d, s_skb);
+  }
+  else
+  {
+    for (u32 i = 0; i < 16; i++) { K3c[i] = K1c[i]; K3d[i] = K1d[i]; }
+  }
+
+  // 3DES-EDE CBC encrypt block 0: E(K1) -> D(K2) -> E(K3)
 
   u32 enc[4];
 
-  des_in[0] = hc_swap32_S (h32_from_64_S (ctx.h[0])) ^ hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[0]);
-  des_in[1] = hc_swap32_S (l32_from_64_S (ctx.h[0])) ^ hc_swap32_S (salt_bufs[SALT_POS_HOST].salt_buf[1]);
+  des_in[0] = hc_swap32_S (h32_from_64_S (ctx.h[0])) ^ iv0;
+  des_in[1] = hc_swap32_S (l32_from_64_S (ctx.h[0])) ^ iv1;
 
   _des_crypt_encrypt (des_out, des_in, K1c, K1d, s_SPtrans);
   _des_crypt_decrypt (des_tmp, des_out, K2c, K2d, s_SPtrans);
-  _des_crypt_encrypt (des_out, des_tmp, K1c, K1d, s_SPtrans);
+  _des_crypt_encrypt (des_out, des_tmp, K3c, K3d, s_SPtrans);
 
   enc[0] = des_out[0];
   enc[1] = des_out[1];
@@ -691,7 +714,7 @@ KERNEL_FQ KERNEL_FA void m37031_aux2 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   _des_crypt_encrypt (des_out, des_in, K1c, K1d, s_SPtrans);
   _des_crypt_decrypt (des_tmp, des_out, K2c, K2d, s_SPtrans);
-  _des_crypt_encrypt (des_out, des_tmp, K1c, K1d, s_SPtrans);
+  _des_crypt_encrypt (des_out, des_tmp, K3c, K3d, s_SPtrans);
 
   enc[2] = des_out[0];
   enc[3] = des_out[1];

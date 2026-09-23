@@ -522,12 +522,13 @@ KERNEL_FQ KERNEL_FA void m37011_aux1 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   sha1_final (&ctx);
 
-  u32 digest0[4];
+  u32 digest0[5];
 
   digest0[0] = ctx.h[0];
   digest0[1] = ctx.h[1];
   digest0[2] = ctx.h[2];
   digest0[3] = ctx.h[3];
+  digest0[4] = ctx.h[4];
 
   w0[0] = l32_from_64_S (tmps[gid].out[0]);
   w0[1] = l32_from_64_S (tmps[gid].out[1]);
@@ -552,25 +553,30 @@ KERNEL_FQ KERNEL_FA void m37011_aux1 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   sha1_final (&ctx);
 
-  u32 digest1[4];
+  u32 digest1[5];
 
   digest1[0] = ctx.h[0];
   digest1[1] = ctx.h[1];
   digest1[2] = ctx.h[2];
   digest1[3] = ctx.h[3];
+  digest1[4] = ctx.h[4];
 
-  u32 ukey[4];
+  const u32 digest_cur = DIGESTS_OFFSET_HOST + LOOP_POS;
+
+  const u32 key_bits = esalt_bufs[digest_cur].key_bits;
+
+  u32 ukey[8];
 
   ukey[0] = digest0[0];
   ukey[1] = digest0[1];
   ukey[2] = digest0[2];
   ukey[3] = digest0[3];
+  ukey[4] = digest0[4];           // SHA-1 5th word (only 20 bytes)
+  ukey[5] = 0x36363636;           // pad to 32 bytes for AES-256
+  ukey[6] = 0x36363636;
+  ukey[7] = 0x36363636;
 
-  u32 ks[44];
-
-  AES128_set_decrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3, s_td0, s_td1, s_td2, s_td3);
-
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + LOOP_POS;
+  u32 ks[60];
 
   u32 data[4];
 
@@ -581,7 +587,18 @@ KERNEL_FQ KERNEL_FA void m37011_aux1 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
 
   u32 out[4];
 
-  AES128_decrypt (ks, data, out, s_td0, s_td1, s_td2, s_td3, s_td4);
+  if (key_bits == 256)
+  {
+    AES256_set_decrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3, s_td0, s_td1, s_td2, s_td3);
+
+    AES256_decrypt (ks, data, out, s_td0, s_td1, s_td2, s_td3, s_td4);
+  }
+  else
+  {
+    AES128_set_decrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3, s_td0, s_td1, s_td2, s_td3);
+
+    AES128_decrypt (ks, data, out, s_td0, s_td1, s_td2, s_td3, s_td4);
+  }
 
   out[0] ^= salt_bufs[SALT_POS_HOST].salt_buf[0];
   out[1] ^= salt_bufs[SALT_POS_HOST].salt_buf[1];
@@ -622,15 +639,28 @@ KERNEL_FQ KERNEL_FA void m37011_aux1 (KERN_ATTR_TMPS_ESALT (office_open_tmp_t, o
   ukey[1] = digest1[1];
   ukey[2] = digest1[2];
   ukey[3] = digest1[3];
-
-  AES128_set_encrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3);
+  ukey[4] = digest1[4];
+  ukey[5] = 0x36363636;
+  ukey[6] = 0x36363636;
+  ukey[7] = 0x36363636;
 
   data[0] = digest[0] ^ salt_bufs[SALT_POS_HOST].salt_buf[0];
   data[1] = digest[1] ^ salt_bufs[SALT_POS_HOST].salt_buf[1];
   data[2] = digest[2] ^ salt_bufs[SALT_POS_HOST].salt_buf[2];
   data[3] = digest[3] ^ salt_bufs[SALT_POS_HOST].salt_buf[3];
 
-  AES128_encrypt (ks, data, out, s_te0, s_te1, s_te2, s_te3, s_te4);
+  if (key_bits == 256)
+  {
+    AES256_set_encrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3);
+
+    AES256_encrypt (ks, data, out, s_te0, s_te1, s_te2, s_te3, s_te4);
+  }
+  else
+  {
+    AES128_set_encrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3);
+
+    AES128_encrypt (ks, data, out, s_te0, s_te1, s_te2, s_te3, s_te4);
+  }
 
   const u32 r0 = out[0];
   const u32 r1 = out[1];
