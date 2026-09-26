@@ -6,6 +6,7 @@
 #include "common.h"
 #include "types.h"
 #include "shared.h"
+#include "emu_inc_pcfg_omen.h"
 
 #if defined (_WIN)
 #include <psapi.h>
@@ -688,6 +689,23 @@ u32 next_power_of_two (const u32 x)
   return r;
 }
 
+// What to print for a percentage that is shown with two decimals.
+//
+// Two decimals round, so a run one hash short of the whole list reads as 100.00% and a run one hash
+// short of none reads as 0.00%. Those two values are the ones a reader acts on, so hold the printed
+// figure off them until the fraction has really arrived.
+
+double hc_percent_display (const double percent)
+{
+  if (percent >= 100.0) return 100.0;
+  if (percent <= 0.0) return 0.0;
+
+  if (percent > 99.99) return 99.99;
+  if (percent < 0.01) return 0.01;
+
+  return percent;
+}
+
 // Whether an on/off environment switch is set, looked up once.
 //
 // Several of these exist (HASHCAT_PIPE, HASHCAT_MEMORY, HASHCAT_PIPE_SYNC, ...) and each would otherwise
@@ -793,6 +811,57 @@ int hc_append_chr (char *buf, const int len, const int buf_sz, const char c)
 HC_PLUGIN_API int pcfg_expand (const pcfg_cell_t *cell, const u32 *pool, const u32 *base, const u32 il_pos, u32 *w, const int base_len)
 {
   if (pool == NULL) return -1;
+
+  // The walk is not written again here. It is the one in OpenCL/inc_pcfg_omen.cl, the same text the
+  // kernel runs, compiled for the host through src/emu_inc_pcfg_omen.c. It has to be the same walk,
+  // because the device decides which candidate matched a digest and this says what that candidate
+  // was, so two spellings of one order would eventually report a password that did not crack it.
+
+  if ((cell->flags & PCFG_CELL_OMEN) != 0)
+  {
+    // The host holds the pool in one piece, so every part is that one buffer and the starts are put
+    // where no index reaches them.
+
+    PCFG_POOL_ONE (pv, pool)
+
+    const int cost      = (int) cell->slots[0].pool_off;
+    const u32 dir_at    = cell->slots[0].packed;
+    const u32 model_idx = cell->slots[1].pool_off;
+
+    pcfg_omen_model_t m;
+
+    pcfg_omen_model (PCFG_POOL_REF (pv), dir_at, model_idx, &m);
+
+    // The host left the rank here when it judged this cell's first candidate, and this candidate
+    // carries its own offset from it. The kernel resumes from the same landing, by the same offset.
+
+    pcfg_omen_land_t ld;
+
+    if (cell->slots[2].digit != 0)
+    {
+      ld.li   = cell->slots[1].radix;
+      ld.sc   = cell->slots[1].digit;
+      ld.i    = cell->slots[1].packed;
+      ld.rank = (((u64) cell->slots[2].radix) << 32) | (u64) cell->slots[2].pool_off;
+    }
+    else
+    {
+      ld.li   = 0;
+      ld.sc   = 0;
+      ld.i    = pcfg_pool_u32 (PCFG_POOL_REF (pv), m.start_lvl);
+      ld.rank = (((u64) cell->slots[0].digit) << 32) | (u64) cell->slots[0].radix;
+    }
+
+    pcfg_omen_walk_t ow;
+
+    if (pcfg_omen_seed (PCFG_POOL_REF (pv), &m, cost, &ld, il_pos, &ow) == false) return -1;
+
+    // Nothing to clear, because the caller reads the length this returns and the bytes below it. And
+    // the bound is the model's own rather than the kernel's: a walk never writes more than this, and
+    // the buffer the caller hands over is larger than it.
+
+    return pcfg_omen_emit (PCFG_POOL_REF (pv), &m, &ow, w, 0, PCFG_OMEN_MAXBYTE);
+  }
 
   const u32 slot_cnt = (cell->slot_cnt < PCFG_DEV_MAXSLOT) ? cell->slot_cnt : PCFG_DEV_MAXSLOT;
 

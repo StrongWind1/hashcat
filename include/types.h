@@ -97,85 +97,85 @@ typedef enum loglevel
 
 typedef enum event_identifier
 {
-  EVENT_AUTODETECT_FINISHED       = 0x00000100,
-  EVENT_AUTODETECT_STARTING       = 0x00000101,
-  EVENT_AUTOTUNE_FINISHED         = 0x00000000,
-  EVENT_AUTOTUNE_STARTING         = 0x00000001,
+  EVENT_AUTODETECT_FINISHED        = 0x00000100,
+  EVENT_AUTODETECT_STARTING        = 0x00000101,
+  EVENT_AUTOTUNE_FINISHED          = 0x00000000,
+  EVENT_AUTOTUNE_STARTING          = 0x00000001,
   EVENT_BACKEND_RUNTIMES_INIT_POST = 0x00000130,
   EVENT_BACKEND_RUNTIMES_INIT_PRE  = 0x00000131,
-  EVENT_BACKEND_DEVICES_INIT_POST = 0x00000132,
-  EVENT_BACKEND_DEVICES_INIT_PRE  = 0x00000133,
-  EVENT_BITMAP_INIT_POST          = 0x00000010,
-  EVENT_BITMAP_INIT_PRE           = 0x00000011,
-  EVENT_BITMAP_FINAL_OVERFLOW     = 0x00000012,
-  EVENT_BRIDGES_INIT_POST         = 0x00000120,
-  EVENT_BRIDGES_INIT_PRE          = 0x00000121,
-  EVENT_CANDIDATE_SOURCE_POST     = 0x00000142,
-  EVENT_CANDIDATE_SOURCE_PRE      = 0x00000143,
-  EVENT_BRIDGES_SALT_POST         = 0x00000122,
-  EVENT_BRIDGES_SALT_PRE          = 0x00000123,
-  EVENT_CALCULATED_WORDS_BASE     = 0x00000020,
-  EVENT_CALCULATED_WORDS_CNT      = 0x00000021,
-  EVENT_CLEAR_EVENT_LINE          = 0x00001000,
-  EVENT_CRACKER_FINISHED          = 0x00000030,
-  EVENT_CRACKER_HASH_CRACKED      = 0x00000031,
-  EVENT_CRACKER_STARTING          = 0x00000032,
-  EVENT_GENERIC_INIT_POST         = 0x00000140,
-  EVENT_GENERIC_INIT_PRE          = 0x00000141,
-  EVENT_HASHCONFIG_PRE            = 0x00000040,
-  EVENT_HASHCONFIG_POST           = 0x00000041,
-  EVENT_HASHLIST_COUNT_LINES_POST = 0x00000050,
-  EVENT_HASHLIST_COUNT_LINES_PRE  = 0x00000051,
-  EVENT_HASHLIST_PARSE_HASH       = 0x00000052,
-  EVENT_HASHLIST_PARSE_INPUT_POST = 0x00000059,
-  EVENT_HASHLIST_PARSE_INPUT_PRE  = 0x0000005a,
-  EVENT_KERNEL_BUILD_POST         = 0x00000144,
-  EVENT_KERNEL_BUILD_PRE          = 0x00000145,
-  EVENT_HASHLIST_SORT_HASH_POST   = 0x00000053,
-  EVENT_HASHLIST_SORT_HASH_PRE    = 0x00000054,
-  EVENT_HASHLIST_SORT_SALT_POST   = 0x00000055,
-  EVENT_HASHLIST_SORT_SALT_PRE    = 0x00000056,
-  EVENT_HASHLIST_UNIQUE_HASH_POST = 0x00000057,
-  EVENT_HASHLIST_UNIQUE_HASH_PRE  = 0x00000058,
-  EVENT_INNERLOOP1_FINISHED       = 0x00000060,
-  EVENT_INNERLOOP1_STARTING       = 0x00000061,
-  EVENT_INNERLOOP2_FINISHED       = 0x00000070,
-  EVENT_INNERLOOP2_STARTING       = 0x00000071,
-  EVENT_LOG_ERROR                 = 0x00000080,
-  EVENT_LOG_INFO                  = 0x00000081,
-  EVENT_LOG_WARNING               = 0x00000082,
-  EVENT_LOG_ADVICE                = 0x00000083,
-  EVENT_MONITOR_RUNTIME_LIMIT     = 0x00000090,
-  EVENT_MONITOR_STATUS_REFRESH    = 0x00000091,
-  EVENT_MONITOR_TEMP_ABORT        = 0x00000092,
-  EVENT_MONITOR_TEMP_ABORT_FEEDER = 0x00000099,
-  EVENT_MONITOR_THROTTLE1         = 0x00000093,
-  EVENT_MONITOR_THROTTLE2         = 0x00000094,
-  EVENT_MONITOR_THROTTLE3         = 0x00000095,
-  EVENT_MONITOR_PERFORMANCE_HINT  = 0x00000096,
-  EVENT_MONITOR_NOINPUT_HINT      = 0x00000097,
-  EVENT_MONITOR_NOINPUT_ABORT     = 0x00000098,
-  EVENT_BACKEND_SESSION_POST      = 0x000000a0,
-  EVENT_BACKEND_SESSION_PRE       = 0x000000a1,
-  EVENT_BACKEND_SESSION_HOSTMEM   = 0x000000a2,
-  EVENT_BACKEND_DEVICE_INIT_POST  = 0x000000a3,
-  EVENT_BACKEND_DEVICE_INIT_PRE   = 0x000000a4,
-  EVENT_OUTERLOOP_FINISHED        = 0x000000b0,
-  EVENT_OUTERLOOP_MAINSCREEN      = 0x000000b1,
-  EVENT_OUTERLOOP_STARTING        = 0x000000b2,
-  EVENT_POTFILE_ALL_CRACKED       = 0x000000c0,
-  EVENT_POTFILE_HASH_LEFT         = 0x000000c1,
-  EVENT_POTFILE_HASH_SHOW         = 0x000000c2,
-  EVENT_POTFILE_NUM_CRACKED       = 0x000000c3,
-  EVENT_POTFILE_REMOVE_PARSE_POST = 0x000000c4,
-  EVENT_POTFILE_REMOVE_PARSE_PRE  = 0x000000c5,
-  EVENT_RULESFILES_PARSE_POST     = 0x000000d4,
-  EVENT_RULESFILES_PARSE_PRE      = 0x000000d5,
-  EVENT_SELFTEST_FINISHED         = 0x000000e0,
-  EVENT_SELFTEST_STARTING         = 0x000000e1,
-  EVENT_SET_KERNEL_POWER_FINAL    = 0x000000f0,
-  EVENT_WORDLIST_CACHE_GENERATE   = 0x00000110,
-  EVENT_WORDLIST_CACHE_HIT        = 0x00000111,
+  EVENT_BACKEND_DEVICES_INIT_POST  = 0x00000132,
+  EVENT_BACKEND_DEVICES_INIT_PRE   = 0x00000133,
+  EVENT_BITMAP_INIT_POST           = 0x00000010,
+  EVENT_BITMAP_INIT_PRE            = 0x00000011,
+  EVENT_BITMAP_FINAL_OVERFLOW      = 0x00000012,
+  EVENT_BRIDGES_INIT_POST          = 0x00000120,
+  EVENT_BRIDGES_INIT_PRE           = 0x00000121,
+  EVENT_CANDIDATE_SOURCE_POST      = 0x00000142,
+  EVENT_CANDIDATE_SOURCE_PRE       = 0x00000143,
+  EVENT_BRIDGES_SALT_POST          = 0x00000122,
+  EVENT_BRIDGES_SALT_PRE           = 0x00000123,
+  EVENT_CALCULATED_WORDS_BASE      = 0x00000020,
+  EVENT_CALCULATED_WORDS_CNT       = 0x00000021,
+  EVENT_CLEAR_EVENT_LINE           = 0x00001000,
+  EVENT_CRACKER_FINISHED           = 0x00000030,
+  EVENT_CRACKER_HASH_CRACKED       = 0x00000031,
+  EVENT_CRACKER_STARTING           = 0x00000032,
+  EVENT_GENERIC_INIT_POST          = 0x00000140,
+  EVENT_GENERIC_INIT_PRE           = 0x00000141,
+  EVENT_HASHCONFIG_PRE             = 0x00000040,
+  EVENT_HASHCONFIG_POST            = 0x00000041,
+  EVENT_HASHLIST_COUNT_LINES_POST  = 0x00000050,
+  EVENT_HASHLIST_COUNT_LINES_PRE   = 0x00000051,
+  EVENT_HASHLIST_PARSE_HASH        = 0x00000052,
+  EVENT_HASHLIST_PARSE_INPUT_POST  = 0x00000059,
+  EVENT_HASHLIST_PARSE_INPUT_PRE   = 0x0000005a,
+  EVENT_KERNEL_BUILD_POST          = 0x00000144,
+  EVENT_KERNEL_BUILD_PRE           = 0x00000145,
+  EVENT_HASHLIST_SORT_HASH_POST    = 0x00000053,
+  EVENT_HASHLIST_SORT_HASH_PRE     = 0x00000054,
+  EVENT_HASHLIST_SORT_SALT_POST    = 0x00000055,
+  EVENT_HASHLIST_SORT_SALT_PRE     = 0x00000056,
+  EVENT_HASHLIST_UNIQUE_HASH_POST  = 0x00000057,
+  EVENT_HASHLIST_UNIQUE_HASH_PRE   = 0x00000058,
+  EVENT_INNERLOOP1_FINISHED        = 0x00000060,
+  EVENT_INNERLOOP1_STARTING        = 0x00000061,
+  EVENT_INNERLOOP2_FINISHED        = 0x00000070,
+  EVENT_INNERLOOP2_STARTING        = 0x00000071,
+  EVENT_LOG_ERROR                  = 0x00000080,
+  EVENT_LOG_INFO                   = 0x00000081,
+  EVENT_LOG_WARNING                = 0x00000082,
+  EVENT_LOG_ADVICE                 = 0x00000083,
+  EVENT_MONITOR_RUNTIME_LIMIT      = 0x00000090,
+  EVENT_MONITOR_STATUS_REFRESH     = 0x00000091,
+  EVENT_MONITOR_TEMP_ABORT         = 0x00000092,
+  EVENT_MONITOR_TEMP_ABORT_FEEDER  = 0x00000099,
+  EVENT_MONITOR_THROTTLE1          = 0x00000093,
+  EVENT_MONITOR_THROTTLE2          = 0x00000094,
+  EVENT_MONITOR_THROTTLE3          = 0x00000095,
+  EVENT_MONITOR_PERFORMANCE_HINT   = 0x00000096,
+  EVENT_MONITOR_NOINPUT_HINT       = 0x00000097,
+  EVENT_MONITOR_NOINPUT_ABORT      = 0x00000098,
+  EVENT_BACKEND_SESSION_POST       = 0x000000a0,
+  EVENT_BACKEND_SESSION_PRE        = 0x000000a1,
+  EVENT_BACKEND_SESSION_HOSTMEM    = 0x000000a2,
+  EVENT_BACKEND_DEVICE_INIT_POST   = 0x000000a3,
+  EVENT_BACKEND_DEVICE_INIT_PRE    = 0x000000a4,
+  EVENT_OUTERLOOP_FINISHED         = 0x000000b0,
+  EVENT_OUTERLOOP_MAINSCREEN       = 0x000000b1,
+  EVENT_OUTERLOOP_STARTING         = 0x000000b2,
+  EVENT_POTFILE_ALL_CRACKED        = 0x000000c0,
+  EVENT_POTFILE_HASH_LEFT          = 0x000000c1,
+  EVENT_POTFILE_HASH_SHOW          = 0x000000c2,
+  EVENT_POTFILE_NUM_CRACKED        = 0x000000c3,
+  EVENT_POTFILE_REMOVE_PARSE_POST  = 0x000000c4,
+  EVENT_POTFILE_REMOVE_PARSE_PRE   = 0x000000c5,
+  EVENT_RULESFILES_PARSE_POST      = 0x000000d4,
+  EVENT_RULESFILES_PARSE_PRE       = 0x000000d5,
+  EVENT_SELFTEST_FINISHED          = 0x000000e0,
+  EVENT_SELFTEST_STARTING          = 0x000000e1,
+  EVENT_SET_KERNEL_POWER_FINAL     = 0x000000f0,
+  EVENT_WORDLIST_CACHE_GENERATE    = 0x00000110,
+  EVENT_WORDLIST_CACHE_HIT         = 0x00000111,
 
   // there will be much more event types soon
 
@@ -237,6 +237,23 @@ typedef enum mem_source
   MEM_SOURCE_PROBE     = 5,   // measured by allocating until it fails
 
 } mem_source_t;
+
+// Where the L2 figure a device is judged on came from.
+//
+// The runtimes do not agree on this one. CUDA and HIP answer it directly and correctly. OpenCL has
+// only CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, which on the runtimes tried answers something else entirely:
+// one gives the L1, another a small fraction of the true size, a third gives zero. So the OpenCL view
+// is never believed, and the figure is borrowed from the CUDA or HIP view of the same physical device
+// instead, the way device_available_mem already is. Where there is nothing to borrow from the answer
+// stays unknown, and no decision rests on it.
+
+typedef enum l2_source
+{
+  L2_SOURCE_UNKNOWN = 0,   // nothing usable; no decision may rest on it
+  L2_SOURCE_RUNTIME = 1,   // CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE / hipDeviceAttributeL2CacheSize
+  L2_SOURCE_ALIAS   = 2,   // copied from the CUDA or HIP view of the same device
+
+} l2_source_t;
 
 typedef enum st_status_rc
 {
@@ -935,27 +952,27 @@ typedef enum increment {
 
 typedef enum user_options_defaults
 {
-  ADVICE                   = true,
-  ATTACK_MODE              = ATTACK_MODE_STRAIGHT,
-  AUTODETECT               = false,
+  ADVICE                    = true,
+  ATTACK_MODE               = ATTACK_MODE_STRAIGHT,
+  AUTODETECT                = false,
   BACKEND_DEVICES_VIRTMULTI = 1,
-  BACKEND_DEVICES_VIRTHOST = 1,
-  BENCHMARK_ALL            = false,
-  BENCHMARK_MAX            = 99999,
-  BENCHMARK_MIN            = 0,
-  BENCHMARK_PURE           = false,
-  BENCHMARK                = false,
-  BITMAP_MAX               = 24,
-  BITMAP_MIN               = 10,
+  BACKEND_DEVICES_VIRTHOST  = 1,
+  BENCHMARK_ALL             = false,
+  BENCHMARK_MAX             = 99999,
+  BENCHMARK_MIN             = 0,
+  BENCHMARK_PURE            = false,
+  BENCHMARK                 = false,
+  BITMAP_MAX                = 24,
+  BITMAP_MIN                = 10,
   #ifdef WITH_BRAIN
-  BRAIN_CLIENT             = false,
-  BRAIN_CLIENT_FEATURES    = 3,
-  BRAIN_PORT               = 6863,
-  BRAIN_SERVER             = false,
-  BRAIN_SESSION            = 0,
+  BRAIN_CLIENT              = false,
+  BRAIN_CLIENT_FEATURES     = 3,
+  BRAIN_PORT                = 6863,
+  BRAIN_SERVER              = false,
+  BRAIN_SESSION             = 0,
   #endif
-  COLOR_CRACKED            = false,
-  DEBUG_MODE               = 0,
+  COLOR_CRACKED             = false,
+  DEBUG_MODE                = 0,
 
   // The highest --debug-mode value, and the one that asks the feed rather than the rules engine what
   // made a candidate. 1 to 5 report a rule, which an attack with no rules has none of.
@@ -1220,6 +1237,12 @@ typedef enum token_attr
   TOKEN_ATTR_VERIFY_BASE58      = 1 << 11,
   TOKEN_ATTR_VERIFY_BECH32      = 1 << 12,
 
+  // TOKEN_ATTR_VERIFY_HEX is hex that decodes to bytes, so it also rejects an odd length. This is
+  // the one for a field of hex characters that is read as characters or as a number, where a length
+  // of 1 is as meaningful as a length of 4.
+
+  TOKEN_ATTR_VERIFY_BASE16      = 1 << 13,
+
 } token_attr_t;
 
 #ifdef WITH_BRAIN
@@ -1322,6 +1345,7 @@ typedef struct outfile_data
 typedef struct logfile_ctx
 {
   bool  enabled;
+  bool  lock_warned;
 
   char *logfile;
   char *topid;
@@ -1495,6 +1519,12 @@ typedef struct pw_batch
 
   pcfg_cell_t *pcfg_cells;
 
+  // A refusal is answered slot by slot, so none of the three can be inferred from the device.
+
+  bool  pcfg_cells_pinned;
+  void *pcfg_cells_clmem;
+  u64   pcfg_cells_size;
+
   // and the wave map that goes with them: which cell each wave of the launch belongs to, and how many
   // waves that comes to. It is built here, one cell at a time as the cells are, because this runs on
   // the producer thread where the feed already runs for free. Building it on the launch thread instead
@@ -1628,7 +1658,37 @@ typedef enum pipe_slot
   PIPE_LAUNCH = 4,  // the loop itself, kernel or bridge
   PIPE_COMP   = 5,  // the comp kernel
 
-  PIPE_SLOTS  = 6,
+  // On the critical path and counted in the total with the five above it: a launch thread that has not
+  // been handed a batch is not launching, and leaving this out is what kept the stages from adding up
+  // to the wall clock.
+  //
+  // Named for the call rather than for the wait it measures, because PIPE_WAIT is a named pipe
+  // constant in winbase.h and an enumerator of that name compiles everywhere except Windows.
+
+  PIPE_TAKE   = 6,  // waiting on the producer for a filled batch, in pw_pipe_take ()
+
+  // In the total with the six above it, and the reason the total can be trusted: it holds the launch
+  // time none of them claimed. See pipe_launch_done ().
+
+  PIPE_OTHER  = 7,
+
+  // The five below are measured inside PIPE_COPY rather than beside it, and are deliberately left out
+  // of the total: they are not stages of their own, they are what the copy is made of, and adding them
+  // would book the same milliseconds twice. They are reported as a share of copy for the same reason.
+
+  PIPE_SORT   = 8,  // clustering equal length candidates, for the modes that ask for it
+  PIPE_CELLS  = 9,  // the pcfg cell and word map upload
+  PIPE_PWSIO  = 10, // the pws_idx and pws_comp upload
+  PIPE_DECOMP = 11, // enqueueing the decompress kernel, which returns before it has run
+  PIPE_SYNC   = 12, // waiting at the end of run_copy () for what that enqueue left running
+
+  PIPE_SLOTS  = 13,
+
+  // The half open range that adds up to the critical path: the copy through the residue, and nothing
+  // after it. PIPE_FEED is before it because it runs on the producer thread.
+
+  PIPE_TOTAL_FIRST = PIPE_COPY,
+  PIPE_TOTAL_END   = PIPE_SORT,
 
 } pipe_slot_t;
 
@@ -1641,6 +1701,21 @@ typedef struct hc_device_param
   double    pipe_msec[PIPE_SLOTS];
   u64       pipe_launches;
   u64       pipe_cands;
+
+  // Whether this device's producer runs on the launch thread rather than on one of its own. It changes
+  // what the stages above mean: with no producer thread the feed happens inside the wait, so its time
+  // is on the critical path and is already counted there, and reporting it as being off the critical
+  // path would be untrue.
+
+  bool      pipe_serial;
+
+  // The wall clock the stages above are measured against, so that what none of them claims can be
+  // named rather than lost, and what they had claimed when it started. Both are taken once, at the
+  // end of the first launch, and the difference of the two is what the residue is worked out from.
+
+  hc_timer_t pipe_wall;
+  double     pipe_wall_base;
+  bool       pipe_wall_set;
 
   int     device_id;
 
@@ -1672,6 +1747,10 @@ typedef struct hc_device_param
   u64     device_maxmem_alloc;
   u64     device_global_mem;
   u64     device_cache_size;                 // last level cache the device reports, 0 if it reports none
+  u64     device_l2_cache_size;              // the L2 a decision may rest on, 0 when none is known
+
+  l2_source_t device_l2_cache_source;        // and where that figure came from
+
   u64     device_available_mem;
   int     device_host_unified_memory;
   u32     device_maxclock_frequency;
@@ -1761,6 +1840,14 @@ typedef struct hc_device_param
 
   u64  size_pcfg_pool_part;
   u32  pcfg_pool_parts;
+
+  // What this device will hold of the pool and the largest piece it takes at a time, worked out once
+  // and kept. The feed is told the first before it packs and the backend checks against it when it
+  // allocates, and the two have to be the same number: device_available_mem is read from the driver
+  // and moves between those two moments by more than the margin they leave.
+
+  u64  size_pcfg_pool_budget;
+  u64  size_pcfg_pool_part_max;
 
   u64  size_rules;
   u64  size_rules_c;
@@ -2362,6 +2449,7 @@ typedef struct debugfile_ctx
   HCFILE  fp;
 
   bool    enabled;
+  bool    lock_warned;
 
   char   *filename;
   u32     mode;
@@ -2382,6 +2470,7 @@ typedef struct loopback_ctx
 
   bool    enabled;
   bool    unused;
+  bool    lock_warned;
 
   char   *filename;
 
@@ -2428,6 +2517,7 @@ typedef struct outfile_ctx
   bool    outfile_autohex;
   bool    outfile_json;
   bool    is_fifo;
+  bool    lock_warned;
 
   char   *filename;
 
@@ -2451,6 +2541,7 @@ typedef struct potfile_ctx
   HCFILE   fp;
 
   bool     enabled;
+  bool     lock_warned;
 
   char    *filename;
 
@@ -3227,6 +3318,42 @@ typedef struct generic_global_ctx
 
   bool dev_enable;
 
+  // The feed settles in global_dev_init () whether the device engine's kernel needs the escape walked
+  // in it, and hashcat turns that into a build option.
+  //
+  // The walk is a good deal of code and it is compiled into every kernel that carries the device
+  // engine, whether or not the run has an escape to walk. On a mode whose own kernel is already large
+  // that was enough to push Metal's pipeline creation past its timeout, so a run without the escape
+  // now gets the kernel it had before there was one.
+
+  bool dev_omen;
+
+  // Whether the engine applies the rules itself. The feed reads it to size the candidate array, which
+  // has to hold what a rule can make of a candidate and not only what the grammar can.
+
+  bool dev_rules;
+
+  // What every active device will hold of the pool together, which is the smallest of what they each
+  // answer, because the pool has to fit on all of them. A feed sizes its pool against this. Without
+  // it a feed can only aim at the addressing limit, and a pool that is addressable is not necessarily
+  // one the card can hold.
+
+  u64 dev_pool_max;
+
+  // The largest single part every active device will take, again the smallest of what they each
+  // answer. Distinct from the budget above: that is what the parts come to together, and this is what
+  // one part may be. It decides whether the escape's small tables have to go at the front of the pool,
+  // because those are read out of the first part alone.
+
+  u64 dev_pool_one;
+
+  // How far into the pool the first part has to reach. Everything a walk reads per step other than a
+  // weight goes straight to the first part rather than through the search that finds a part, so a
+  // split that cut below this line would read the wrong words. The feed says where the line is and
+  // the backend takes fewer and larger parts to stay above it. Zero where nothing needs it.
+
+  u64 dev_pool_lo;
+
   // Whether this feed was asked to describe the attack rather than to run it, which it says by
   // setting this from global_init () or global_dev_init (). A feed's settings can carry a question,
   // such as where in the keyspace this attack reaches a given candidate, and an answer to that is
@@ -3279,7 +3406,7 @@ typedef bool (*GENERIC_THREAD_INIT)     (generic_global_ctx_t *, generic_thread_
 typedef void (*GENERIC_THREAD_TERM)     (generic_global_ctx_t *, generic_thread_ctx_t *);
 typedef int  (*GENERIC_THREAD_NEXT)     (generic_global_ctx_t *, generic_thread_ctx_t *, u8 *, const int);
 typedef int  (*GENERIC_THREAD_NEXT_DEV) (generic_global_ctx_t *, generic_thread_ctx_t *, u8 *, const int, pcfg_cell_t *);
-typedef int  (*GENERIC_GLOBAL_EXPLAIN)   (generic_global_ctx_t *, const pcfg_cell_t *, const u32 *, const u8 *, const int, const u32, const u64, char *, const int);
+typedef int  (*GENERIC_GLOBAL_EXPLAIN)  (generic_global_ctx_t *, const pcfg_cell_t *, const u32 *, const u8 *, const int, const u32, const u64, char *, const int);
 typedef bool (*GENERIC_THREAD_SEEK)     (generic_global_ctx_t *, generic_thread_ctx_t *, const u64);
 typedef bool (*GENERIC_GLOBAL_DEV_INIT) (generic_global_ctx_t *, const u32 **, u64 *, u32 *, u32 *, u32 *, u32 *, u32 *, u32 *, pcfg_cell_t *);
 
@@ -3306,6 +3433,13 @@ typedef struct generic_ctx
 
   generic_global_ctx_t  global_ctx;
   generic_thread_ctx_t *thread_ctx;
+
+  // Which devices thread_init () was run for. The set of devices that reach teardown is not the set
+  // that reached startup: a device is refused inside backend_session_begin (), which runs after the
+  // feed has been opened, and is marked skipped there. Terminating by the flags as they stand at
+  // teardown walks past exactly those devices and leaves their feed threads running.
+
+  bool *thread_inited;
 
   // what the user asked for, and the file that turned out to be
 
@@ -3350,6 +3484,7 @@ typedef struct generic_ctx
   bool autohex_enable;
   bool iconv_enable;
   bool rules_enable;
+  bool dev_rules_enable;
   bool dev_enable;
   bool explain_enable;
 

@@ -205,157 +205,157 @@ int user_options_init (hashcat_ctx_t *hashcat_ctx)
 {
   user_options_t *user_options = hashcat_ctx->user_options;
 
-  user_options->advice                    = ADVICE;
-  user_options->attack_mode               = ATTACK_MODE;
-  user_options->autodetect                = AUTODETECT;
-  user_options->backend_devices           = NULL;
-  user_options->backend_devices_virtmulti = BACKEND_DEVICES_VIRTMULTI;
-  user_options->backend_devices_virthost  = BACKEND_DEVICES_VIRTHOST;
-  user_options->backend_ignore_cuda       = BACKEND_IGNORE_CUDA;
-  user_options->backend_ignore_hip        = BACKEND_IGNORE_HIP;
+  user_options->advice                     = ADVICE;
+  user_options->attack_mode                = ATTACK_MODE;
+  user_options->autodetect                 = AUTODETECT;
+  user_options->backend_devices            = NULL;
+  user_options->backend_devices_virtmulti  = BACKEND_DEVICES_VIRTMULTI;
+  user_options->backend_devices_virthost   = BACKEND_DEVICES_VIRTHOST;
+  user_options->backend_ignore_cuda        = BACKEND_IGNORE_CUDA;
+  user_options->backend_ignore_hip         = BACKEND_IGNORE_HIP;
   #if defined (__APPLE__)
-  user_options->backend_ignore_metal      = BACKEND_IGNORE_METAL;
+  user_options->backend_ignore_metal       = BACKEND_IGNORE_METAL;
   #endif
-  user_options->backend_ignore_opencl     = BACKEND_IGNORE_OPENCL;
-  user_options->backend_info              = BACKEND_INFO;
-  user_options->backend_vector_width      = BACKEND_VECTOR_WIDTH;
-  user_options->benchmark_all             = BENCHMARK_ALL;
-  user_options->benchmark_max             = BENCHMARK_MAX;
-  user_options->benchmark_min             = BENCHMARK_MIN;
-  user_options->benchmark_pure            = BENCHMARK_PURE;
-  user_options->benchmark                 = BENCHMARK;
-  user_options->bitmap_max                = BITMAP_MAX;
-  user_options->bitmap_min                = BITMAP_MIN;
-  user_options->cache_path                = NULL;
+  user_options->backend_ignore_opencl      = BACKEND_IGNORE_OPENCL;
+  user_options->backend_info               = BACKEND_INFO;
+  user_options->backend_vector_width       = BACKEND_VECTOR_WIDTH;
+  user_options->benchmark_all              = BENCHMARK_ALL;
+  user_options->benchmark_max              = BENCHMARK_MAX;
+  user_options->benchmark_min              = BENCHMARK_MIN;
+  user_options->benchmark_pure             = BENCHMARK_PURE;
+  user_options->benchmark                  = BENCHMARK;
+  user_options->bitmap_max                 = BITMAP_MAX;
+  user_options->bitmap_min                 = BITMAP_MIN;
+  user_options->cache_path                 = NULL;
   #ifdef WITH_BRAIN
-  user_options->brain_client              = BRAIN_CLIENT;
-  user_options->brain_feed                = false;
+  user_options->brain_client               = BRAIN_CLIENT;
+  user_options->brain_feed                 = false;
   user_options->brain_client_features      = BRAIN_CLIENT_FEATURES;
   user_options->brain_client_features_chgd = false;
-  user_options->brain_host                = NULL;
-  user_options->brain_port                = BRAIN_PORT;
-  user_options->brain_server              = BRAIN_SERVER;
-  user_options->brain_server_timer        = BRAIN_SERVER_TIMER;
-  user_options->brain_session             = BRAIN_SESSION;
-  user_options->brain_session_whitelist   = NULL;
+  user_options->brain_host                 = NULL;
+  user_options->brain_port                 = BRAIN_PORT;
+  user_options->brain_server               = BRAIN_SERVER;
+  user_options->brain_server_timer         = BRAIN_SERVER_TIMER;
+  user_options->brain_session              = BRAIN_SESSION;
+  user_options->brain_session_whitelist    = NULL;
   #endif
-  user_options->color_cracked             = COLOR_CRACKED;
-  user_options->bridge_parameter1         = NULL;
-  user_options->bridge_parameter2         = NULL;
-  user_options->bridge_parameter3         = NULL;
-  user_options->bridge_parameter4         = NULL;
-  user_options->cpu_affinity              = NULL;
-  user_options->custom_charset_1          = NULL;
-  user_options->custom_charset_2          = NULL;
-  user_options->custom_charset_3          = NULL;
-  user_options->custom_charset_4          = NULL;
-  user_options->custom_charset_5          = NULL;
-  user_options->custom_charset_6          = NULL;
-  user_options->custom_charset_7          = NULL;
-  user_options->custom_charset_8          = NULL;
-  user_options->debug_file                = NULL;
-  user_options->debug_mode                = DEBUG_MODE;
-  user_options->deprecated_check          = DEPRECATED_CHECK;
-  user_options->dynamic_x                 = DYNAMIC_X;
-  user_options->encoding_from             = ENCODING_FROM;
-  user_options->encoding_to               = ENCODING_TO;
-  user_options->encrypt_with_pubkey       = NULL;
-  user_options->force                     = FORCE;
-  user_options->hash_copy                 = HASH_COPY;
-  user_options->hwmon                     = HWMON;
-  user_options->hwmon_temp_abort          = HWMON_TEMP_ABORT;
-  user_options->hash_info                 = HASH_INFO;
-  user_options->hash_mode                 = HASH_MODE;
-  user_options->hccapx_message_pair       = HCCAPX_MESSAGE_PAIR;
-  user_options->hex_charset               = HEX_CHARSET;
-  user_options->hex_salt                  = HEX_SALT;
-  user_options->hex_wordlist              = HEX_WORDLIST;
-  user_options->hook_threads              = HOOK_THREADS;
-  user_options->identify                  = IDENTIFY;
-  user_options->increment                 = (increment_t) INCREMENT;
-  user_options->increment_max             = INCREMENT_MAX;
-  user_options->increment_min             = INCREMENT_MIN;
-  user_options->induction_dir             = NULL;
-  user_options->keep_guessing             = KEEP_GUESSING;
-  user_options->kernel_accel              = KERNEL_ACCEL;
-  user_options->kernel_loops              = KERNEL_LOOPS;
-  user_options->kernel_threads            = KERNEL_THREADS;
-  user_options->keyboard_layout_mapping   = NULL;
-  user_options->keyspace                  = KEYSPACE;
-  user_options->total_candidates          = TOTAL_CANDIDATES;
-  user_options->left                      = LEFT;
-  user_options->length_sort_disable       = LENGTH_SORT_DISABLE;
-  user_options->limit                     = LIMIT;
-  user_options->logfile                   = LOGFILE;
-  user_options->lookup                    = NULL;
-  user_options->lookup_alias              = NULL;
-  user_options->loopback                  = LOOPBACK;
-  user_options->machine_readable          = MACHINE_READABLE;
-  user_options->markov_classic            = MARKOV_CLASSIC;
-  user_options->markov                    = MARKOV;
-  user_options->markov_hcstat2            = NULL;
-  user_options->markov_inverse            = MARKOV_INVERSE;
-  user_options->markov_threshold          = MARKOV_THRESHOLD;
-  user_options->metal_compiler_runtime    = METAL_COMPILER_RUNTIME;
-  user_options->nonce_error_corrections   = NONCE_ERROR_CORRECTIONS;
-  user_options->opencl_device_types       = NULL;
-  user_options->optimized_kernel          = OPTIMIZED_KERNEL;
-  user_options->multiply_accel            = MULTIPLY_ACCEL;
-  user_options->outfile_autohex           = OUTFILE_AUTOHEX;
-  user_options->outfile_check_dir         = NULL;
-  user_options->outfile_check_timer       = OUTFILE_CHECK_TIMER;
-  user_options->outfile_format            = OUTFILE_FORMAT;
-  user_options->outfile_json              = OUTFILE_JSON;
-  user_options->outfile                   = NULL;
-  user_options->potfile                   = POTFILE;
-  user_options->potfile_path              = NULL;
-  user_options->progress_only             = PROGRESS_ONLY;
-  user_options->quiet                     = QUIET;
-  user_options->remove                    = REMOVE;
-  user_options->remove_timer              = REMOVE_TIMER;
-  user_options->restore_enable            = RESTORE_ENABLE;
-  user_options->restore_file_path         = NULL;
-  user_options->restore                   = RESTORE;
-  user_options->restore_position          = RESTORE_POSITION;
-  user_options->rp_files_concat           = false;
-  user_options->restore_timer             = RESTORE_TIMER;
-  user_options->rp_gen_func_max           = RP_GEN_FUNC_MAX;
-  user_options->rp_gen_func_min           = RP_GEN_FUNC_MIN;
-  user_options->rp_gen_func_sel           = NULL;
-  user_options->rp_gen                    = RP_GEN;
-  user_options->rp_gen_seed               = RP_GEN_SEED;
-  user_options->rule_buf_l                = RULE_BUF_L;
-  user_options->rule_buf_r                = RULE_BUF_R;
-  user_options->runtime                   = RUNTIME;
-  user_options->scrypt_tmto               = SCRYPT_TMTO;
-  user_options->self_test                 = SELF_TEST;
-  user_options->separator                 = SEPARATOR;
-  user_options->session                   = PROGNAME;
-  user_options->show                      = SHOW;
-  user_options->skip                      = SKIP;
-  user_options->slow_candidates           = SLOW_CANDIDATES;
-  user_options->speed_only                = SPEED_ONLY;
-  user_options->spin_damp                 = SPIN_DAMP;
-  user_options->status                    = STATUS;
-  user_options->status_json               = STATUS_JSON;
-  user_options->pipeline_stats            = PIPELINE_STATS;
-  user_options->task_time_breakdown       = TASK_TIME_BREAKDOWN;
-  user_options->status_timer              = STATUS_TIMER;
-  user_options->stdin_timeout_abort       = STDIN_TIMEOUT_ABORT;
-  user_options->stdout_flag               = STDOUT_FLAG;
-  user_options->truecrypt_keyfiles        = NULL;
-  user_options->usage                     = USAGE;
-  user_options->username                  = USERNAME;
-  user_options->veracrypt_keyfiles        = NULL;
-  user_options->veracrypt_pim_start       = VERACRYPT_PIM_START;
-  user_options->veracrypt_pim_stop        = VERACRYPT_PIM_STOP;
-  user_options->version                   = VERSION;
-  user_options->wordlist_autohex          = WORDLIST_AUTOHEX;
-  user_options->rp_files_cnt              = 0;
-  user_options->rp_files                  = (char **) hccalloc (256, sizeof (char *));
-  user_options->hc_bin                    = PROGNAME;
-  user_options->hc_argc                   = 0;
-  user_options->hc_argv                   = NULL;
+  user_options->color_cracked              = COLOR_CRACKED;
+  user_options->bridge_parameter1          = NULL;
+  user_options->bridge_parameter2          = NULL;
+  user_options->bridge_parameter3          = NULL;
+  user_options->bridge_parameter4          = NULL;
+  user_options->cpu_affinity               = NULL;
+  user_options->custom_charset_1           = NULL;
+  user_options->custom_charset_2           = NULL;
+  user_options->custom_charset_3           = NULL;
+  user_options->custom_charset_4           = NULL;
+  user_options->custom_charset_5           = NULL;
+  user_options->custom_charset_6           = NULL;
+  user_options->custom_charset_7           = NULL;
+  user_options->custom_charset_8           = NULL;
+  user_options->debug_file                 = NULL;
+  user_options->debug_mode                 = DEBUG_MODE;
+  user_options->deprecated_check           = DEPRECATED_CHECK;
+  user_options->dynamic_x                  = DYNAMIC_X;
+  user_options->encoding_from              = ENCODING_FROM;
+  user_options->encoding_to                = ENCODING_TO;
+  user_options->encrypt_with_pubkey        = NULL;
+  user_options->force                      = FORCE;
+  user_options->hash_copy                  = HASH_COPY;
+  user_options->hwmon                      = HWMON;
+  user_options->hwmon_temp_abort           = HWMON_TEMP_ABORT;
+  user_options->hash_info                  = HASH_INFO;
+  user_options->hash_mode                  = HASH_MODE;
+  user_options->hccapx_message_pair        = HCCAPX_MESSAGE_PAIR;
+  user_options->hex_charset                = HEX_CHARSET;
+  user_options->hex_salt                   = HEX_SALT;
+  user_options->hex_wordlist               = HEX_WORDLIST;
+  user_options->hook_threads               = HOOK_THREADS;
+  user_options->identify                   = IDENTIFY;
+  user_options->increment                  = (increment_t) INCREMENT;
+  user_options->increment_max              = INCREMENT_MAX;
+  user_options->increment_min              = INCREMENT_MIN;
+  user_options->induction_dir              = NULL;
+  user_options->keep_guessing              = KEEP_GUESSING;
+  user_options->kernel_accel               = KERNEL_ACCEL;
+  user_options->kernel_loops               = KERNEL_LOOPS;
+  user_options->kernel_threads             = KERNEL_THREADS;
+  user_options->keyboard_layout_mapping    = NULL;
+  user_options->keyspace                   = KEYSPACE;
+  user_options->total_candidates           = TOTAL_CANDIDATES;
+  user_options->left                       = LEFT;
+  user_options->length_sort_disable        = LENGTH_SORT_DISABLE;
+  user_options->limit                      = LIMIT;
+  user_options->logfile                    = LOGFILE;
+  user_options->lookup                     = NULL;
+  user_options->lookup_alias               = NULL;
+  user_options->loopback                   = LOOPBACK;
+  user_options->machine_readable           = MACHINE_READABLE;
+  user_options->markov_classic             = MARKOV_CLASSIC;
+  user_options->markov                     = MARKOV;
+  user_options->markov_hcstat2             = NULL;
+  user_options->markov_inverse             = MARKOV_INVERSE;
+  user_options->markov_threshold           = MARKOV_THRESHOLD;
+  user_options->metal_compiler_runtime     = METAL_COMPILER_RUNTIME;
+  user_options->nonce_error_corrections    = NONCE_ERROR_CORRECTIONS;
+  user_options->opencl_device_types        = NULL;
+  user_options->optimized_kernel           = OPTIMIZED_KERNEL;
+  user_options->multiply_accel             = MULTIPLY_ACCEL;
+  user_options->outfile_autohex            = OUTFILE_AUTOHEX;
+  user_options->outfile_check_dir          = NULL;
+  user_options->outfile_check_timer        = OUTFILE_CHECK_TIMER;
+  user_options->outfile_format             = OUTFILE_FORMAT;
+  user_options->outfile_json               = OUTFILE_JSON;
+  user_options->outfile                    = NULL;
+  user_options->potfile                    = POTFILE;
+  user_options->potfile_path               = NULL;
+  user_options->progress_only              = PROGRESS_ONLY;
+  user_options->quiet                      = QUIET;
+  user_options->remove                     = REMOVE;
+  user_options->remove_timer               = REMOVE_TIMER;
+  user_options->restore_enable             = RESTORE_ENABLE;
+  user_options->restore_file_path          = NULL;
+  user_options->restore                    = RESTORE;
+  user_options->restore_position           = RESTORE_POSITION;
+  user_options->rp_files_concat            = false;
+  user_options->restore_timer              = RESTORE_TIMER;
+  user_options->rp_gen_func_max            = RP_GEN_FUNC_MAX;
+  user_options->rp_gen_func_min            = RP_GEN_FUNC_MIN;
+  user_options->rp_gen_func_sel            = NULL;
+  user_options->rp_gen                     = RP_GEN;
+  user_options->rp_gen_seed                = RP_GEN_SEED;
+  user_options->rule_buf_l                 = RULE_BUF_L;
+  user_options->rule_buf_r                 = RULE_BUF_R;
+  user_options->runtime                    = RUNTIME;
+  user_options->scrypt_tmto                = SCRYPT_TMTO;
+  user_options->self_test                  = SELF_TEST;
+  user_options->separator                  = SEPARATOR;
+  user_options->session                    = PROGNAME;
+  user_options->show                       = SHOW;
+  user_options->skip                       = SKIP;
+  user_options->slow_candidates            = SLOW_CANDIDATES;
+  user_options->speed_only                 = SPEED_ONLY;
+  user_options->spin_damp                  = SPIN_DAMP;
+  user_options->status                     = STATUS;
+  user_options->status_json                = STATUS_JSON;
+  user_options->pipeline_stats             = PIPELINE_STATS;
+  user_options->task_time_breakdown        = TASK_TIME_BREAKDOWN;
+  user_options->status_timer               = STATUS_TIMER;
+  user_options->stdin_timeout_abort        = STDIN_TIMEOUT_ABORT;
+  user_options->stdout_flag                = STDOUT_FLAG;
+  user_options->truecrypt_keyfiles         = NULL;
+  user_options->usage                      = USAGE;
+  user_options->username                   = USERNAME;
+  user_options->veracrypt_keyfiles         = NULL;
+  user_options->veracrypt_pim_start        = VERACRYPT_PIM_START;
+  user_options->veracrypt_pim_stop         = VERACRYPT_PIM_STOP;
+  user_options->version                    = VERSION;
+  user_options->wordlist_autohex           = WORDLIST_AUTOHEX;
+  user_options->rp_files_cnt               = 0;
+  user_options->rp_files                   = (char **) hccalloc (256, sizeof (char *));
+  user_options->hc_bin                     = PROGNAME;
+  user_options->hc_argc                    = 0;
+  user_options->hc_argv                    = NULL;
 
   return 0;
 }
@@ -914,8 +914,16 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
   #ifdef WITH_BRAIN
   else if (user_options->brain_client == true)
   {
+    // The same set the slow candidate branch above accepts. A brain client used to reach this test
+    // only when it had also been given -S by hand, so the three hybrid modes being absent went
+    // unnoticed; a client that keeps device-side generation reaches it every time, and both of its
+    // producers handle a hybrid mode already.
+
     if ((user_options->attack_mode != ATTACK_MODE_STRAIGHT)
      && (user_options->attack_mode != ATTACK_MODE_COMBI)
+     && (user_options->attack_mode != ATTACK_MODE_HYBRID1)
+     && (user_options->attack_mode != ATTACK_MODE_HYBRID2)
+     && (user_options->attack_mode != ATTACK_MODE_HYBRID)
      && (user_options->attack_mode != ATTACK_MODE_BF)
      && (user_options->attack_mode != ATTACK_MODE_PCFG)
      && (user_options->attack_mode != ATTACK_MODE_TABLE)
@@ -2212,19 +2220,10 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
       return -1;
     }
 
-    if (user_options->attack_mode == ATTACK_MODE_PCFG)
-    {
-      event_log_error (hashcat_ctx, "Custom charsets are not supported in attack mode 4 (pcfg).");
-
-      return -1;
-    }
-
-    if (user_options->attack_mode == ATTACK_MODE_GENERIC)
-    {
-      event_log_error (hashcat_ctx, "Custom charsets are not supported in attack mode 8 (generic).");
-
-      return -1;
-    }
+    // Modes 4 and 8 are not named here. A pcfg run takes a mask of its own, as the setting mask=, to
+    // say what is already known about the shape of the password, and the charsets belong to that mask
+    // exactly as they belong to the one -a 3 walks. A mode 8 feed that takes no mask leaves them
+    // unused, and the feed is what says so, because the feed is what knows.
 
     if (user_options->attack_mode == ATTACK_MODE_ASSOCIATION)
     {
@@ -2233,9 +2232,15 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
       return -1;
     }
 
+    // Modes 4 and 8 take no positional mask. A pcfg run reads one from the setting mask=, and a feed that
+    // reads none at all is refused where the feed is known, so counting arguments here would answer with
+    // the wrong complaint.
+
+    const bool positional_mask = (user_options->attack_mode != ATTACK_MODE_PCFG) && (user_options->attack_mode != ATTACK_MODE_GENERIC);
+
     // detect if mask was specified:
 
-    bool mask_is_missing = true;
+    bool mask_is_missing = positional_mask;
 
     if (user_options->keyspace == true || user_options->total_candidates == true || user_options->lookup != NULL) // special case if --keyspace was used: we need the mask but no hash file
     {
@@ -2944,9 +2949,19 @@ void user_options_preprocess (hashcat_ctx_t *hashcat_ctx)
   #ifdef WITH_BRAIN
   if (user_options->brain_client == true)
   {
-    user_options->slow_candidates = true;
+    // Only the candidate feature needs a plaintext on the host, and that is the only reason the
+    // brain ever wanted the slow candidate path. Keyspace reservation works from an offset and a
+    // length alone, so a client asking for that feature by itself keeps device-side generation and
+    // the mask stays on the GPU. This is decided here rather than once the salt count is known,
+    // because kernel selection, base_source and the vector width all read slow_candidates during
+    // session init, long before a hash list exists.
+
+    if (user_options->brain_client_features & BRAIN_CLIENT_FEATURE_HASHES)
+    {
+      user_options->slow_candidates = true;
+    }
   }
-    #endif
+  #endif
 
   if (user_options->hwmon == false)
   {
@@ -3913,6 +3928,14 @@ u64 user_options_extra_amplifier (hashcat_ctx_t *hashcat_ctx)
 
     if (hashcat_ctx->generic_ctx[GENERIC_ROLE_BASE].dev_avg)
     {
+      // And where the engine applies the rules itself, a base word is worth its cell once per rule, so
+      // the two amplifiers multiply rather than one of them replacing the other.
+
+      if (hashcat_ctx->generic_ctx[GENERIC_ROLE_BASE].global_ctx.dev_rules == true)
+      {
+        return (u64) hashcat_ctx->generic_ctx[GENERIC_ROLE_BASE].dev_avg * (u64) straight_ctx->kernel_rules_cnt;
+      }
+
       return hashcat_ctx->generic_ctx[GENERIC_ROLE_BASE].dev_avg;
     }
   }

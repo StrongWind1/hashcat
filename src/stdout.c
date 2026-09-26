@@ -551,7 +551,7 @@ int process_stdout (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param,
 
   if (filename)
   {
-    hc_unlockfile (&out.fp);
+    hc_unlockfile_warn (hashcat_ctx, &out.fp, filename, &outfile_ctx->lock_warned);
 
     hc_fclose (&out.fp);
   }

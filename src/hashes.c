@@ -2992,10 +2992,10 @@ static bool hashlist_parse_threaded (hashcat_ctx_t *hashcat_ctx, HCFILE *fp, u32
   u32 hashes_cnt = *hashes_cnt_ptr;
   u32 line_num   = *line_num_ptr;
 
-  size_t keep     = 0;
-  bool   overlong = false;
-  u64    dropped  = 0;
-  bool   changed  = false;
+  size_t keep         = 0;
+  bool   overlong     = false;
+  u64    dropped      = 0;
+  bool   changed      = false;
   u32    changed_line = 0;
 
   time_t prev = 0;
@@ -3452,6 +3452,17 @@ int hashes_init_stage1 (hashcat_ctx_t *hashcat_ctx)
       }
 
       hashlist_format = hlfmt_detect (hashcat_ctx, &fp, 100); // 100 = max numbers to "scan". could be hashes_avail, too
+
+      // Picking one of these formats reinterprets every line in the file, because the hash is then one
+      // column of the line rather than the whole of it. A file read in the wrong format loads a full
+      // set of wrong hashes and cracks nothing, and it does that without failing to parse a single
+      // line, so the choice is said out loud rather than made quietly.
+
+      if (hashlist_format != HLFMT_HASHCAT)
+      {
+        event_log_info (hashcat_ctx, "Hashfile '%s': %s file format detected", hashfile, strhlfmt (hashlist_format));
+        event_log_info (hashcat_ctx, NULL);
+      }
 
       // A hash file with no separator in it cannot be split into username and hash, so every line would
       // fail to parse and the run would end on "No hashes loaded" with a warning per line and no word
