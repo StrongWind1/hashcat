@@ -20,7 +20,7 @@ static const u32   DGST_POS3      = 3;
 static const u32   DGST_SIZE      = DGST_SIZE_4_8;
 static const u32   HASH_CATEGORY  = HASH_CATEGORY_DOCUMENTS;
 static const char *HASH_NAME      = "Open Document Format (ODF) 1.1/1.2/1.3";
-static const u64   KERN_TYPE      = 37321;
+static const u64   KERN_TYPE      = 37212;
 static const u32   OPTI_TYPE      = OPTI_TYPE_ZERO_BYTE
                                   | OPTI_TYPE_SLOW_HASH_SIMD_LOOP;
 static const u64   OPTS_TYPE      = OPTS_TYPE_STOCK_MODULE
@@ -71,13 +71,14 @@ typedef struct odf
 
 typedef enum kern_type_odf
 {
-  KERN_TYPE_ODF_SHA1_BLOWFISH = 37311,
-  KERN_TYPE_ODF_SHA256_AES    = 37321,
-  KERN_TYPE_ODF_SHA256_GCM    = 37322,
+  KERN_TYPE_ODF_SHA1_BLOWFISH = 37211,
+  KERN_TYPE_ODF_SHA256_AES    = 37212,
+  KERN_TYPE_ODF_SHA256_GCM    = 37213,
 
 } kern_type_odf_t;
 
-static const char *SIGNATURE_ODF = "$odf$";
+static const char *SIGNATURE_ODF_OPEN = "$odf-open$";
+static const char *SIGNATURE_ODF      = "$odf$";
 
 u64 module_esalt_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
 {
@@ -225,13 +226,15 @@ static int parse_new_format (MAYBE_UNUSED const hashconfig_t *hashconfig, u32 *d
 
   token.token_cnt = 11;
 
-  token.signatures_cnt    = 1;
-  token.signatures_buf[0] = SIGNATURE_ODF;
+  token.signatures_cnt    = 2;
+  token.signatures_buf[0] = SIGNATURE_ODF_OPEN;
+  token.signatures_buf[1] = SIGNATURE_ODF;
 
-  // $odf$
+  // $odf-open$ or $odf$
   token.sep[0]     = '*';
-  token.len[0]     = 5;
-  token.attr[0]    = TOKEN_ATTR_FIXED_LENGTH
+  token.len_min[0] = 5;
+  token.len_max[0] = 10;
+  token.attr[0]    = TOKEN_ATTR_VERIFY_LENGTH
                    | TOKEN_ATTR_VERIFY_SIGNATURE;
 
   // startkey: sha1 | sha256
@@ -433,12 +436,14 @@ static int parse_legacy_format (MAYBE_UNUSED const hashconfig_t *hashconfig, u32
 
   token.token_cnt = 12;
 
-  token.signatures_cnt    = 1;
-  token.signatures_buf[0] = SIGNATURE_ODF;
+  token.signatures_cnt    = 2;
+  token.signatures_buf[0] = SIGNATURE_ODF_OPEN;
+  token.signatures_buf[1] = SIGNATURE_ODF;
 
   token.sep[0]     = '*';
-  token.len[0]     = 5;
-  token.attr[0]    = TOKEN_ATTR_FIXED_LENGTH
+  token.len_min[0] = 5;
+  token.len_max[0] = 10;
+  token.attr[0]    = TOKEN_ATTR_VERIFY_LENGTH
                    | TOKEN_ATTR_VERIFY_SIGNATURE;
 
   token.sep[1]     = '*';
@@ -664,7 +669,7 @@ int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSE
   ct_buf[ct_len] = 0;
 
   const int out_len = snprintf (line_buf, line_size, "%s*%s*pbkdf2*%s*%u*0*0*%s*%s*%s*%s",
-    SIGNATURE_ODF,
+    SIGNATURE_ODF_OPEN,
     startkey_str,
     cipher_str,
     salt->salt_iter + 1,

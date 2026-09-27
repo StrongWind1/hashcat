@@ -20,7 +20,7 @@ static const u32   DGST_POS3      = 6;
 static const u32   DGST_SIZE      = DGST_SIZE_8_8;
 static const u32   HASH_CATEGORY  = HASH_CATEGORY_DOCUMENTS;
 static const char *HASH_NAME      = "MS Office Protection Verifier";
-static const u64   KERN_TYPE      = 37241;
+static const u64   KERN_TYPE      = 37141;
 static const u32   OPTI_TYPE      = OPTI_TYPE_ZERO_BYTE;
 static const u64   OPTS_TYPE      = OPTS_TYPE_STOCK_MODULE
                                   | OPTS_TYPE_PT_GENERATE_LE
@@ -59,20 +59,13 @@ typedef struct office_protect_tmp
 
 typedef enum kern_type_protect
 {
-  KERN_TYPE_PROTECT_SHA1_ISO     = 37211,
-  KERN_TYPE_PROTECT_SHA1_CRYPT   = 37212,
-  KERN_TYPE_PROTECT_SHA256_ISO   = 37221,
-  KERN_TYPE_PROTECT_SHA256_CRYPT = 37222,
-  KERN_TYPE_PROTECT_SHA384_ISO   = 37231,
-  KERN_TYPE_PROTECT_SHA384_CRYPT = 37232,
-  KERN_TYPE_PROTECT_SHA512_ISO   = 37241,
-  KERN_TYPE_PROTECT_SHA512_CRYPT = 37242,
-  KERN_TYPE_PROTECT_MD5_ISO      = 37251,
-  KERN_TYPE_PROTECT_MD5_CRYPT    = 37252,
-  KERN_TYPE_PROTECT_MD4_ISO      = 37261,
-  KERN_TYPE_PROTECT_MD4_CRYPT    = 37262,
-  KERN_TYPE_PROTECT_MD2_ISO      = 37271,
-  KERN_TYPE_PROTECT_MD2_CRYPT    = 37272,
+  KERN_TYPE_PROTECT_SHA1   = 37111,
+  KERN_TYPE_PROTECT_SHA256 = 37121,
+  KERN_TYPE_PROTECT_SHA384 = 37131,
+  KERN_TYPE_PROTECT_SHA512 = 37141,
+  KERN_TYPE_PROTECT_MD5    = 37151,
+  KERN_TYPE_PROTECT_MD4    = 37161,
+  KERN_TYPE_PROTECT_MD2    = 37171,
 
 } kern_type_protect_t;
 
@@ -151,31 +144,15 @@ u64 module_kern_type_dynamic (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE
 {
   const office_protect_t *office_protect = (const office_protect_t *) esalt_buf;
 
-  if (office_protect->kdf_type == 0) // iso
+  switch (office_protect->hash_type)
   {
-    switch (office_protect->hash_type)
-    {
-      case 0: return KERN_TYPE_PROTECT_SHA1_ISO;
-      case 1: return KERN_TYPE_PROTECT_SHA256_ISO;
-      case 2: return KERN_TYPE_PROTECT_SHA384_ISO;
-      case 3: return KERN_TYPE_PROTECT_SHA512_ISO;
-      case 4: return KERN_TYPE_PROTECT_MD5_ISO;
-      case 5: return KERN_TYPE_PROTECT_MD4_ISO;
-      case 6: return KERN_TYPE_PROTECT_MD2_ISO;
-    }
-  }
-  else if (office_protect->kdf_type == 1) // crypt
-  {
-    switch (office_protect->hash_type)
-    {
-      case 0: return KERN_TYPE_PROTECT_SHA1_CRYPT;
-      case 1: return KERN_TYPE_PROTECT_SHA256_CRYPT;
-      case 2: return KERN_TYPE_PROTECT_SHA384_CRYPT;
-      case 3: return KERN_TYPE_PROTECT_SHA512_CRYPT;
-      case 4: return KERN_TYPE_PROTECT_MD5_CRYPT;
-      case 5: return KERN_TYPE_PROTECT_MD4_CRYPT;
-      case 6: return KERN_TYPE_PROTECT_MD2_CRYPT;
-    }
+    case 0: return KERN_TYPE_PROTECT_SHA1;
+    case 1: return KERN_TYPE_PROTECT_SHA256;
+    case 2: return KERN_TYPE_PROTECT_SHA384;
+    case 3: return KERN_TYPE_PROTECT_SHA512;
+    case 4: return KERN_TYPE_PROTECT_MD5;
+    case 5: return KERN_TYPE_PROTECT_MD4;
+    case 6: return KERN_TYPE_PROTECT_MD2;
   }
 
   return (PARSER_HASH_LENGTH);

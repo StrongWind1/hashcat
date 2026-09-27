@@ -124,6 +124,25 @@ These parameter combinations are extracted by the `office-password-toolkit` but 
 | ODF 1.3 AES-256-GCM with PBKDF2 | ODF Wholesome Encryption | 37300 |
 | MSISAM MD5/SHA-1 + RC4 page encryption | Microsoft Money | 37500 |
 
+## Architecture
+
+The unified modules organize all Office and ODF hash types into a 2x2 matrix of families (MS Office, ODF) and protection modes (document-open encryption, protection verifier), plus two specialist types. Each family gets its own `$prefix$`, and the suffix mirrors across families.
+
+|  | Document-open encryption | Protection verifier |
+|---|---|---|
+| **MS Office** | `$office-open$` — 37000 (ECMA-376) + 37100-37102 (RC4) | `$office-protect$` — 37200 |
+| **ODF** | `$odf-open$` — 37300 | `$odf-protect$` — 37600 (needs module) |
+| **Specialist** | `$office-msisam$` — 37500 | `$office-vba$` — 37400 |
+
+### Naming Convention
+
+- `$office-*$` — Microsoft Office family
+- `$odf-*$` — OpenDocument family
+- `*-open` — Document-open encryption: content is ciphertext, password derives the key
+- `*-protect` — Protection verifier: content is plaintext, password verified against digest or KDF output
+
+This gives 6 schemes, 6 prefixes, and 9 hashcat modules. Every module accepts both its unified prefix and its legacy format (where one exists). The parser reads the prefix, detects which format it is, and normalizes to the same internal `esalt` fields.
+
 ## Framework Mechanisms
 
 The design uses two hashcat framework features that compose without conflict.
@@ -237,12 +256,12 @@ The `crypt` KDF ([MS-OE376] Section 2.1.410) adds a legacy pre-stage before the 
 
 **Backward compatibility:** Also accepts `$office$2016$0$<spin>$<saltb64>$<hashb64>` (mode 25300 format), mapping to `sha512*iso*100000`.
 
-### `$odf$` — OpenDocument Encryption (Unified)
+### `$odf-open$` — OpenDocument Encryption
 
-Used by module 37300.
+Used by module 37300. The canonical prefix is `$odf-open$` (aligned with `$office-open$` for family consistency). Module 37300 also accepts `$odf$` as a legacy alias for backward compatibility.
 
 ```
-$odf$*<startkey>*<kdf>*<cipher>*<iters>*<mem>*<lanes>*<salt_hex>*<iv_hex>*<checksum_hex>*<ciphertext_hex>
+$odf-open$*<startkey>*<kdf>*<cipher>*<iters>*<mem>*<lanes>*<salt_hex>*<iv_hex>*<checksum_hex>*<ciphertext_hex>
 ```
 
 | Token | Values | Purpose |
@@ -260,9 +279,11 @@ $odf$*<startkey>*<kdf>*<cipher>*<iters>*<mem>*<lanes>*<salt_hex>*<iv_hex>*<check
 
 ODF deviation: the password is hashed as raw UTF-8 bytes, not UTF-16LE. The PBKDF2 PRF is always HMAC-SHA1, even in the SHA-256 profile (SHA-256 is only the start-key pre-hash and the checksum).
 
-**Backward compatibility:** Also accepts the hashcat/odf2john numeric format:
-- `$odf$*0*0*<iters>*<keysize>*<checksum>*<ivlen>*<iv>*<saltlen>*<salt>*0*<ct>` → `sha1*pbkdf2*blowfish` (18600)
-- `$odf$*1*1*<iters>*<keysize>*<checksum>*<ivlen>*<iv>*<saltlen>*<salt>*0*<ct>` → `sha256*pbkdf2*aes256` (18400)
+**Backward compatibility:** Module 37300 accepts three prefix variants:
+- `$odf-open$*...` — canonical unified format
+- `$odf$*sha1*pbkdf2*...` — legacy alias of `$odf-open$` (same named-token format, older prefix)
+- `$odf$*0*0*<iters>*<keysize>*<checksum>*<ivlen>*<iv>*<saltlen>*<salt>*0*<ct>` — hashcat/odf2john numeric format, maps to `sha1*pbkdf2*blowfish` (18600)
+- `$odf$*1*1*<iters>*<keysize>*<checksum>*<ivlen>*<iv>*<saltlen>*<salt>*0*<ct>` — hashcat/odf2john numeric format, maps to `sha256*pbkdf2*aes256` (18400)
 
 ### `$office-vba$` — VBA Project Password
 
@@ -292,6 +313,29 @@ $office-msisam$<algo>$<salt_hex>$<crypt_check_hex>$<adjustment>
 | `adjustment` | Decimal integer | Salt adjustment value |
 
 MSISAM (Microsoft Money 2002+) uses uppercased UTF-16LE password → MD5 or SHA-1 → RC4 → decrypt check bytes → compare. Non-iterated, inside-kernel.
+
+### `$odf-protect$` — ODF Protection Verifier
+
+Planned for module 37600 (not yet built). Mirrors `$office-protect$` for the ODF family.
+
+```
+$odf-protect$*<hashfunc>*<kdf>*<iters>*<salt_hex>*<digest_hex>
+```
+
+| Token | Values | Purpose |
+|-------|--------|---------|
+| `hashfunc` | `sha1`, `sha256` | Digest algorithm |
+| `kdf` | `none`, `pbkdf2` | `none` = raw digest (no KDF), `pbkdf2` = PBKDF2-HMAC-SHA1 |
+| `iters` | Decimal integer; `0` for `kdf=none` | Iteration count |
+| `salt_hex` | Lowercase hex; empty for `kdf=none` | Salt bytes |
+| `digest_hex` | Lowercase hex | Expected digest |
+
+Three variant groups:
+
+- **Body protection** (`kdf=none`): `table:table`, `text:section`, `office:spreadsheet`, `text:table-of-content`, `text:alphabetical-index`, `text:bibliography` elements. Raw `SHA-1(password)` or `SHA-256(password)` with no salt and no iteration.
+- **Modify password** (`kdf=pbkdf2`): `settings.xml` `ModifyPasswordInfo`. PBKDF2-HMAC-SHA1 with a 16-byte salt and configurable iteration count.
+
+No legacy format exists — this is a new hash type.
 
 ## Module Specifications
 
@@ -334,27 +378,38 @@ typedef struct {
 ```c
 enum {
   KERN_TYPE_OFFICE_OPEN_SHA1   = 37011,
-  KERN_TYPE_OFFICE_OPEN_SHA256 = 37021,
-  KERN_TYPE_OFFICE_OPEN_SHA384 = 37031,
-  KERN_TYPE_OFFICE_OPEN_SHA512 = 37041,
+  KERN_TYPE_OFFICE_OPEN_SHA256 = 37012,
+  KERN_TYPE_OFFICE_OPEN_SHA384 = 37013,
+  KERN_TYPE_OFFICE_OPEN_SHA512 = 37014,
+  KERN_TYPE_OFFICE_OPEN_MD5    = 37015,
+  KERN_TYPE_OFFICE_OPEN_MD4    = 37016,
+  KERN_TYPE_OFFICE_OPEN_MD2    = 37017,
 };
 ```
 
-**`deep_comp_kernel` dispatch** (only in 37011, SHA-1 kernel):
+Formula: `kern_type = 37010 + (hash_type + 1)`
 
-- `cipher_type == 0` (Standard/ECB) → `KERN_RUN_3` (`m37011_comp`)
-- `cipher_type == 1` (Agile/CBC) → `KERN_RUN_AUX1` (`m37011_aux1`)
+**`deep_comp_kernel` dispatch** (within each hash kernel):
 
-SHA-256/384/512 kernels always use Agile/CBC, so they return `KERN_RUN_3` unconditionally.
+- `cipher_type == 0` (AES-ECB, Standard 2007) → `KERN_RUN_3` (`_comp`)
+- `cipher_type == 1` (AES-CBC, Agile) → `KERN_RUN_AUX1` (`_aux1`) for SHA-1/MD5/MD4/MD2; `KERN_RUN_3` for SHA-256/384/512
+- `cipher_type == 2` (3DES-112 CBC) → `KERN_RUN_AUX2`
+- `cipher_type == 3` (3DES CBC) → `KERN_RUN_AUX2`
+- `cipher_type == 4` (DES CBC) → `KERN_RUN_AUX3`
+- `cipher_type == 5` (DESX CBC) → `KERN_RUN_AUX4`
+- `cipher_type == 6` (RC2 CBC) → `KERN_RUN_AUX5`
 
 **Kernel files and lineage:**
 
 | File | Init | Loop | Comp | Lineage |
 |------|------|------|------|---------|
 | m37011-pure.cl | SHA-1(salt \|\| pw) | SHA-1(LE32(i) \|\| H) | `_comp`: ipad/opad → AES-ECB; `_aux1`: block-key → AES-CBC-128 | init+loop from m09400; `_comp` from m09400; `_aux1` from m09500 |
-| m37021-pure.cl | SHA-256(salt \|\| pw) | SHA-256(LE32(i) \|\| H) | block-key → AES-CBC | New; m09500 pattern with SHA-256 |
-| m37031-pure.cl | SHA-384(salt \|\| pw) | SHA-384(LE32(i) \|\| H) | block-key → AES-CBC | New; m09500 pattern with SHA-384 |
-| m37041-pure.cl | SHA-512(salt \|\| pw) | SHA-512(LE32(i) \|\| H) | block-key → AES-CBC-256 | From m09600 |
+| m37012-pure.cl | SHA-256(salt \|\| pw) | SHA-256(LE32(i) \|\| H) | block-key → AES-CBC | New; m09500 pattern with SHA-256 |
+| m37013-pure.cl | SHA-384(salt \|\| pw) | SHA-384(LE32(i) \|\| H) | block-key → AES-CBC | New; m09500 pattern with SHA-384 |
+| m37014-pure.cl | SHA-512(salt \|\| pw) | SHA-512(LE32(i) \|\| H) | block-key → AES-CBC-256 | From m09600 |
+| m37015-pure.cl | MD5(salt \|\| pw) | MD5(LE32(i) \|\| H) | Same dispatch as SHA-1 | New |
+| m37016-pure.cl | MD4(salt \|\| pw) | MD4(LE32(i) \|\| H) | Same dispatch as SHA-1 | New |
+| m37017-pure.cl | MD2(salt \|\| pw) | MD2(LE32(i) \|\| H) | Same dispatch as SHA-1 | New |
 
 **JIT build options:**
 - SHA-384/512 kernels: `-D _unroll` on NVIDIA/HIP/ROCM (from m09600)
@@ -395,8 +450,8 @@ typedef struct {
 
 ```c
 enum {
-  KERN_TYPE_OFFICE_RC4_MD5  = 37150,
-  KERN_TYPE_OFFICE_RC4_SHA1 = 37110,
+  KERN_TYPE_OFFICE_RC4_MD5  = 37030,
+  KERN_TYPE_OFFICE_RC4_SHA1 = 37040,
 };
 ```
 
@@ -404,8 +459,8 @@ enum {
 
 | File | Description | Lineage |
 |------|-------------|---------|
-| m37150-optimized.cl | MD5 KDF + gen336 + RC4 decrypt + MD5 verify | From m09700 |
-| m37110-optimized.cl | SHA-1 KDF + RC4 decrypt + SHA-1 verify; `key_bits` drives truncation | From m09800 |
+| m37030-optimized.cl | MD5 KDF + gen336 + RC4 decrypt + MD5 verify | From m09700 |
+| m37040-optimized.cl | SHA-1 KDF + RC4 decrypt + SHA-1 verify; `key_bits` drives truncation | From m09800 |
 
 **Key improvement over 9800:** `key_bits` is parsed from the hash line and passed to the kernel via esalt. The kernel truncates `Hfinal` to `key_bits/8` bytes. A 56-bit file gets the correct 7-byte truncation instead of the old binary 5-or-16 split.
 
@@ -433,10 +488,12 @@ The candidate is a raw 5-byte RC4 key, not a password. The kernel skips the KDF 
 
 **`kern_type_dynamic` dispatch:**
 
+Collider #1 uses separate kernels in the 370xx family. The KDF is skipped; the candidate is used directly as the RC4 key.
+
 ```c
 enum {
-  KERN_TYPE_OFFICE_RC4_MD5_COLL1  = 37151,
-  KERN_TYPE_OFFICE_RC4_SHA1_COLL1 = 37111,
+  KERN_TYPE_OFFICE_RC4_MD5_COLL1  = 37031,
+  KERN_TYPE_OFFICE_RC4_SHA1_COLL1 = 37041,
 };
 ```
 
@@ -444,8 +501,8 @@ enum {
 
 | File | Description | Lineage |
 |------|-------------|---------|
-| m37151-optimized.cl | RC4(key5) → MD5 verify (no KDF) | From m09710 |
-| m37111-optimized.cl | RC4(key5) → SHA-1 verify (no KDF) | From m09810 |
+| m37031_a{0,1,3,4}-pure.cl | RC4(key5) → MD5 verify (no KDF) | From m09710 |
+| m37041_a{0,1,3,4}-pure.cl | RC4(key5) → SHA-1 verify (no KDF) | From m09810 |
 
 **Hash line format:** Accepts both `$office-open$*...` (7-token) and `$oldoffice$N*...` (5-token). The hash content is identical to the password-crack format; the user selects the key-brute attack by running `-m 37101` instead of `-m 37100`.
 
@@ -469,10 +526,12 @@ The candidate is a password. The kernel derives the key from the password and co
 
 **`kern_type_dynamic` dispatch:**
 
+Collider #2 uses separate kernels in the 370xx family. The kernel derives the key from the password and compares against the known key seed, instead of decrypting.
+
 ```c
 enum {
-  KERN_TYPE_OFFICE_RC4_MD5_COLL2  = 37152,
-  KERN_TYPE_OFFICE_RC4_SHA1_COLL2 = 37112,
+  KERN_TYPE_OFFICE_RC4_MD5_COLL2  = 37032,
+  KERN_TYPE_OFFICE_RC4_SHA1_COLL2 = 37042,
 };
 ```
 
@@ -480,8 +539,8 @@ enum {
 
 | File | Description | Lineage |
 |------|-------------|---------|
-| m37152-optimized.cl | MD5(pw) → truncate → compare rc4key | From m09720 |
-| m37112-optimized.cl | SHA-1(salt \|\| pw) → truncate → compare rc4key | From m09820 |
+| m37032_a{0,1,3,4}-pure.cl | MD5(pw) → truncate → compare rc4key | From m09720 |
+| m37042_a{0,1,3,4}-pure.cl | SHA-1(salt \|\| pw) → truncate → compare rc4key | From m09820 |
 
 **Hash line format:** Accepts `$office-open$*...*<rc4key_hex>` (8-token) and `$oldoffice$N*...*<rc4key_hex>` (6-token).
 
@@ -501,7 +560,7 @@ enum {
 
 ```c
 typedef struct {
-  u32 hash_type;   // 0=SHA-1, 1=SHA-256, 2=SHA-384, 3=SHA-512, 4=MD5
+  u32 hash_type;   // 0=SHA-1, 1=SHA-256, 2=SHA-384, 3=SHA-512, 4=MD5, 5=MD4, 6=MD2
   u32 kdf_type;    // 0=iso, 1=crypt
 } office_protect_t;
 ```
@@ -510,31 +569,35 @@ Minimal esalt. The digest IS the hash — no cipher verification. Salt goes in `
 
 **`kern_type_dynamic` dispatch:**
 
+Formula: `kern_type = 37100 + (hash_type + 1) * 10 + (kdf_type + 1)`
+
 ```c
 enum {
-  KERN_TYPE_PROTECT_SHA1_ISO     = 37211,
-  KERN_TYPE_PROTECT_SHA1_CRYPT   = 37212,
-  KERN_TYPE_PROTECT_SHA256_ISO   = 37221,
-  KERN_TYPE_PROTECT_SHA384_ISO   = 37231,
-  KERN_TYPE_PROTECT_SHA512_ISO   = 37241,
-  KERN_TYPE_PROTECT_SHA512_CRYPT = 37242,
-  KERN_TYPE_PROTECT_MD5_ISO      = 37251,
+  KERN_TYPE_PROTECT_SHA1   = 37111,
+  KERN_TYPE_PROTECT_SHA256 = 37121,
+  KERN_TYPE_PROTECT_SHA384 = 37131,
+  KERN_TYPE_PROTECT_SHA512 = 37141,
+  KERN_TYPE_PROTECT_MD5    = 37151,
+  KERN_TYPE_PROTECT_MD4    = 37161,
+  KERN_TYPE_PROTECT_MD2    = 37171,
 };
 ```
 
+Formula: `kern_type = 37100 + (hash_type + 1) * 10 + 1`. Each kernel is an uber kernel handling both ISO and crypt KDF modes via a `kdf_type` branch in `_init`.
+
 **Kernel files and lineage:**
 
-| File | Init | Loop | Comp | Lineage |
-|------|------|------|------|---------|
-| m37211-pure.cl | SHA-1(salt \|\| pw) | SHA-1(H \|\| LE32(i)) | Direct compare | New; m25300 pattern with SHA-1 |
-| m37212-pure.cl | SHA-1(salt \|\| method2(pw)) | SHA-1(H \|\| LE32(i)) | Direct compare | New; pre-stage in init |
-| m37221-pure.cl | SHA-256(salt \|\| pw) | SHA-256(H \|\| LE32(i)) | Direct compare | New; m25300 pattern with SHA-256 |
-| m37231-pure.cl | SHA-384(salt \|\| pw) | SHA-384(H \|\| LE32(i)) | Direct compare | New; m25300 pattern with SHA-384 |
-| m37241-pure.cl | SHA-512(salt \|\| pw) | SHA-512(H \|\| LE32(i)) | Direct compare | From m25300 (hardcoded check removed) |
-| m37242-pure.cl | SHA-512(salt \|\| method2(pw)) | SHA-512(H \|\| LE32(i)) | Direct compare | New; pre-stage in init |
-| m37251-pure.cl | MD5(salt \|\| pw) | MD5(H \|\| LE32(i)) | Direct compare | New; m25300 pattern with MD5 |
+| File | Init (ISO) | Init (crypt) | Loop | Comp | Lineage |
+|------|-----------|-------------|------|------|---------|
+| m37111-pure.cl | SHA-1(salt \|\| pw) | SHA-1(salt \|\| method2(pw)) | SHA-1(H \|\| LE32(i)) | Direct compare | m25300 pattern |
+| m37121-pure.cl | SHA-256(salt \|\| pw) | SHA-256(salt \|\| method2(pw)) | SHA-256(H \|\| LE32(i)) | Direct compare | New |
+| m37131-pure.cl | SHA-384(salt \|\| pw) | SHA-384(salt \|\| method2(pw)) | SHA-384(H \|\| LE32(i)) | Direct compare | New |
+| m37141-pure.cl | SHA-512(salt \|\| pw) | SHA-512(salt \|\| method2(pw)) | SHA-512(H \|\| LE32(i)) | Direct compare | From m25300 |
+| m37151-pure.cl | MD5(salt \|\| pw) | MD5(salt \|\| method2(pw)) | MD5(H \|\| LE32(i)) | Direct compare | New |
+| m37161-pure.cl | MD4(salt \|\| pw) | MD4(salt \|\| method2(pw)) | MD4(H \|\| LE32(i)) | Direct compare | New |
+| m37171-pure.cl | MD2(salt \|\| pw) | MD2(salt \|\| method2(pw)) | MD2(H \|\| LE32(i)) | Direct compare | New |
 
-The `crypt` KDF kernels (37212, 37242) implement the `CreatePasswordVerifier_Method2` pre-stage in the init kernel: password → 32-bit legacy hash → uppercase hex LE-bytes → UTF-16LE encode → then `H(salt || transformed_pw)`. The loop is identical to the `iso` variant.
+The `_init` function branches on `esalt.kdf_type`: 0 = ISO (direct UTF-16LE password), 1 = crypt (password transformed through `CreatePasswordVerifier_Method2` pre-stage: 32-bit legacy hash → uppercase hex LE-bytes → UTF-16LE). The `_loop` and `_comp` functions are shared (identical for both KDF modes).
 
 **DGST_SIZE:** Varies by hash algorithm. SHA-512 needs `DGST_SIZE_8_8` (u64); SHA-1/MD5 use `DGST_SIZE_4_5` / `DGST_SIZE_4_4`. Set dynamically based on `hash_type` or use the largest and zero-pad.
 
@@ -542,7 +605,7 @@ The `crypt` KDF kernels (37212, 37242) implement the `CreatePasswordVerifier_Met
 
 ---
 
-### Module 37300 — `odf` (OpenDocument PBKDF2)
+### Module 37300 — `odf-open` (OpenDocument PBKDF2)
 
 **Hash name:** Open Document Format (ODF) 1.1/1.2/1.3
 
@@ -584,9 +647,9 @@ PBKDF2-HMAC-SHA1 state: `ipad`/`opad` are the HMAC key schedule, `dgst` is the p
 
 ```c
 enum {
-  KERN_TYPE_ODF_SHA1_BLOWFISH = 37311,
-  KERN_TYPE_ODF_SHA256_AES    = 37321,
-  KERN_TYPE_ODF_SHA256_GCM    = 37322,
+  KERN_TYPE_ODF_SHA1_BLOWFISH = 37211,
+  KERN_TYPE_ODF_SHA256_AES    = 37212,
+  KERN_TYPE_ODF_SHA256_GCM    = 37213,
 };
 ```
 
@@ -594,13 +657,13 @@ enum {
 
 | File | Init | Loop | Comp | Lineage |
 |------|------|------|------|---------|
-| m37311-pure.cl | SHA-1(pw) → HMAC init → PBKDF2 block 1 | PBKDF2-HMAC-SHA1 (1 block) | Blowfish S-box setup → CFB-64 decrypt → SHA-1/1K | From m18600 |
-| m37321-pure.cl | SHA-256(pw) → HMAC init → PBKDF2 blocks 1-2 | PBKDF2-HMAC-SHA1 (2 blocks) | AES-256-CBC decrypt → SHA-256/1K | From m18400 |
-| m37322-pure.cl | SHA-256(pw) → HMAC init → PBKDF2 blocks 1-2 | PBKDF2-HMAC-SHA1 (2 blocks) | AES-256-GCM decrypt → tag verify | New |
+| m37211-pure.cl | SHA-1(pw) → HMAC init → PBKDF2 block 1 | PBKDF2-HMAC-SHA1 (1 block) | Blowfish S-box setup → CFB-64 decrypt → SHA-1/1K | From m18600 |
+| m37212-pure.cl | SHA-256(pw) → HMAC init → PBKDF2 blocks 1-2 | PBKDF2-HMAC-SHA1 (2 blocks) | AES-256-CBC decrypt → SHA-256/1K | From m18400 |
+| m37213-pure.cl | SHA-256(pw) → HMAC init → PBKDF2 blocks 1-2 | PBKDF2-HMAC-SHA1 (2 blocks) | AES-256-GCM decrypt → tag verify | New |
 
 All three share identical PBKDF2-HMAC-SHA1 loop code (only the block count differs: 1 for Blowfish/16-byte key, 2 for AES-256/32-byte key). The loop code is factored into a shared include.
 
-**JIT for Blowfish kernel (37311):** Complex `FIXED_LOCAL_SIZE_COMP` logic for Blowfish S-box local memory (from m18600). `OPTS_TYPE_DYNAMIC_SHARED` required.
+**JIT for Blowfish kernel (37211):** Complex `FIXED_LOCAL_SIZE_COMP` logic for Blowfish S-box local memory (from m18600). `OPTS_TYPE_DYNAMIC_SHARED` required.
 
 **pw_max:** 51 for Blowfish kernel (StarOffice SHA-1 bug workaround, from m18600).
 
@@ -665,62 +728,216 @@ Both are new kernels. The MSISAM KDF uppercases the password before UTF-16LE enc
 
 ## Kernel Numbering Map
 
+All kernel types live in the 37000-37999 range. The hundreds digit selects the module family; the last two digits encode the hash algorithm and variant within that family.
+
 ```
-37000 office-open (ECMA-376, OUTSIDE_KERNEL)
-  37011  SHA-1    loop + ECB comp + CBC aux1
-  37021  SHA-256  loop + CBC comp
-  37031  SHA-384  loop + CBC comp
-  37041  SHA-512  loop + CBC comp
+370xx  OFFICE_OPEN — document-open encryption kernels (modules 37000, 37100-37102)
 
-37100 office-open-rc4 (password crack, INSIDE_KERNEL)
-  37110  SHA-1 + RC4
-  37150  MD5 + RC4
+  Agile/Standard (module 37000): kern_type = 37010 + (hash_type + 1)
+  37011  SHA-1    (init/loop/comp+aux1-5: ECB standard, CBC/3DES/DES/DESX/RC2 agile)
+  37012  SHA-256  (init/loop/comp: AES-CBC)
+  37013  SHA-384  (init/loop/comp: AES-CBC)
+  37014  SHA-512  (init/loop/comp: AES-CBC-256)
+  37015  MD5      (init/loop/comp+aux1-5)
+  37016  MD4      (init/loop/comp+aux1-5)
+  37017  MD2      (init/loop/comp+aux1-5)
 
-37101 office-open-rc4-collider1 (key brute, INSIDE_KERNEL)
-  37111  SHA-1 + RC4 key brute
-  37151  MD5 + RC4 key brute
+  RC4+MD5 (modules 37100/37101/37102):
+  37030  MD5 + RC4 password crack       (gen336 KDF, 40-bit effective key)
+  37031  MD5 + RC4 collider #1          (5-byte key brute, no KDF)
+  37032  MD5 + RC4 collider #2          (password-from-seed, key-compare)
 
-37102 office-open-rc4-collider2 (password from key, INSIDE_KERNEL)
-  37112  SHA-1 + RC4 password→key
-  37152  MD5 + RC4 password→key
+  RC4+SHA-1 (modules 37100/37101/37102):
+  37040  SHA-1 + RC4 password crack     (CryptoAPI KDF, key_bits 40-128)
+  37041  SHA-1 + RC4 collider #1        (5-byte key brute, no KDF)
+  37042  SHA-1 + RC4 collider #2        (password-from-seed, key-compare)
 
-37200 office-protect (OUTSIDE_KERNEL)
-  37211  SHA-1    iso
-  37212  SHA-1    crypt
-  37221  SHA-256  iso
-  37231  SHA-384  iso
-  37241  SHA-512  iso
-  37242  SHA-512  crypt
-  37251  MD5      iso
+371xx  OFFICE_PROTECT — protection/permission verifier kernels (module 37200)
 
-37300 odf (OUTSIDE_KERNEL)
-  37311  SHA-1 start  + Blowfish-CFB
-  37321  SHA-256 start + AES-256-CBC
-  37322  SHA-256 start + AES-256-GCM
+  kern_type = 37100 + (hash_type + 1) * 10 + 1
+  Each kernel is an uber kernel handling both ISO and crypt KDF modes.
+  The _init function branches on esalt.kdf_type: 0=ISO, 1=crypt (Method2 pre-stage).
+  The _loop and _comp functions are shared (identical for both KDF modes).
 
-37400 office-vba (INSIDE_KERNEL)
-  110    reuses sha1($pass.$salt) kernel
+  37111  SHA-1     (uber: ISO + crypt)
+  37121  SHA-256   (uber: ISO + crypt)
+  37131  SHA-384   (uber: ISO + crypt)
+  37141  SHA-512   (uber: ISO + crypt, lineage: mode 25300)
+  37151  MD5       (uber: ISO + crypt)
+  37161  MD4       (uber: ISO + crypt)
+  37171  MD2       (uber: ISO + crypt)
 
-37500 office-msisam (INSIDE_KERNEL)
-  37510  SHA-1 + RC4
-  37550  MD5 + RC4
+372xx  ODF_OPEN — PBKDF2 encryption kernels (module 37300)
+  37211  SHA-1 start + Blowfish-CFB   (lineage: mode 18600)
+  37212  SHA-256 start + AES-256-CBC  (lineage: mode 18400)
+  37213  SHA-256 start + AES-256-GCM  (new)
+
+373xx  ODF_OPEN — Argon2id encryption kernels (module 37300, GPU gap, not yet built)
+  37314  Argon2id + AES-256-CBC
+  37315  Argon2id + AES-256-GCM
+
+374xx  VBA — reuses kernel 110 (sha1($pass.$salt)), no new OpenCL file
+
+375xx  MSISAM — non-iterated inside-kernel (module 37500)
+  37510  SHA-1 + RC4 verify
+  37550  MD5 + RC4 verify
+
+376xx  ODF_PROTECT — not yet built (module 37600)
+  (raw SHA-1/SHA-256 digest, PBKDF2-HMAC-SHA1 modify password)
 ```
 
-**Numbering convention:**
-
-- Base `37x00`: the user-facing module number (-m flag)
-- Tens digit (Y): hash algorithm — 1=SHA-1, 2=SHA-256, 3=SHA-384, 4=SHA-512, 5=MD5
-- Ones digit (Z): cipher or KDF variant — 0=primary, 1=secondary, 2=tertiary
-- The convention is consistent across all modules; room remains for future hash algorithms (Y=6-9) and cipher variants (Z=3-9)
+**Numbering convention:** `37FNN` where `F` = family (0=office-open, 1=office-protect, 2=odf-pbkdf2, 3=odf-argon2, 5=msisam, 7=odf-protect). Within 370xx, agile kernels use `37010 + (hash_type + 1)` giving 37011-37017; RC4 kernels use 3703x (MD5) and 3704x (SHA-1) with the ones digit selecting attack type (0=password, 1=collider#1, 2=collider#2). Within 371xx, each protection uber kernel is `37100 + (hash_type + 1) * 10 + 1`; the KDF variant (ISO vs crypt) is handled by a `kdf_type` branch in `_init`, not by separate kernels.
 
 ## File Inventory
 
 | Category | Count | Files |
 |----------|-------|-------|
 | Module C files | 8 | module_37000.c, module_37100.c, module_37101.c, module_37102.c, module_37200.c, module_37300.c, module_37400.c, module_37500.c |
-| OpenCL kernels | 22 | m37011, m37021, m37031, m37041, m37110, m37111, m37112, m37150, m37151, m37152, m37211, m37212, m37221, m37231, m37241, m37242, m37251, m37311, m37321, m37322, m37510, m37550 |
+| OpenCL kernels | 22 | m37011, m37012, m37013, m37014, m37020, m37030, m37040, m37111, m37112, m37113, m37114, m37115, m37116, m37117, m37118, m37211, m37212, m37213, m37510, m37550 |
 | Reused kernel | 1 | m00110 (for module 37400) |
 | **Total new files** | **30** | |
+
+## Complete Variant Table (100 spec-legal variants)
+
+This section enumerates every parameter combination that is valid per the specs. "Corpus" = YES means real-world samples exist in the test corpus; "THEOR" means spec-legal but not yet seen in the wild.
+
+### `$office-open$` — 68 variants
+
+**RC4+MD5** — Office 97-2003 legacy, [MS-OFFCRYPTO] Section 2.3.6. Kernel 37030.
+
+| hash | cipher | mode | iters | Producer | Corpus | Kernel |
+|------|--------|------|-------|----------|--------|--------|
+| `md5` | `rc4-40` | `stream` | `0` | Word/Excel 97-2003 (.doc/.xls) | YES | 37030 |
+
+**RC4+SHA-1 CryptoAPI** — Office 2000-2007, [MS-OFFCRYPTO] Section 2.3.5. Kernel 37040. KeySize configurable 40-128 in 8-bit steps.
+
+| hash | cipher | mode | iters | Producer | Corpus | Kernel |
+|------|--------|------|-------|----------|--------|--------|
+| `sha1` | `rc4-40` | `stream` | `0` | Word/Excel/PPT/OneNote/Visio 2000-2007 default | YES | 37040 |
+| `sha1` | `rc4-48` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-56` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-64` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-72` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-80` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-88` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-96` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-104` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-112` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-120` | `stream` | `0` | CryptoAPI configurable | THEOR | 37040 |
+| `sha1` | `rc4-128` | `stream` | `0` | Word/Excel/PPT 2003-2007 128-bit, Access .accdb 2007 | YES | 37040 |
+
+**Standard AES-ECB** — Office 2007, [MS-OFFCRYPTO] Section 2.3.4.5. Kernel 37020. Always SHA-1, ECB, 50000 iters.
+
+| hash | cipher | mode | iters | Producer | Corpus | Kernel |
+|------|--------|------|-------|----------|--------|--------|
+| `sha1` | `aes128` | `ecb` | `50000` | Office 2007 default | YES | 37020 |
+| `sha1` | `aes192` | `ecb` | `50000` | Registry-configured 192-bit CSP | THEOR | 37020 |
+| `sha1` | `aes256` | `ecb` | `50000` | Registry-configured 256-bit CSP | THEOR | 37020 |
+| `sha1` | `rc2` | `ecb` | `50000` | Spec-legal AlgID | THEOR | 37020 |
+| `sha1` | `des` | `ecb` | `50000` | Spec-legal AlgID | THEOR | 37020 |
+| `sha1` | `3des` | `ecb` | `50000` | Spec-legal AlgID | THEOR | 37020 |
+| `sha1` | `3des112` | `ecb` | `50000` | Spec-legal AlgID | THEOR | 37020 |
+
+**Agile** — Office 2010+, [MS-OFFCRYPTO] Section 2.3.4.10. 8 hashes x 3 ciphers x 2 modes = 48 combos. Iters 1-10M.
+
+| hash | cipher | mode | Producer | Corpus | Kernel |
+|------|--------|------|----------|--------|--------|
+| `sha1` | `aes128` | `cbc` | Office 2010 default | YES | 37011 |
+| `sha1` | `aes256` | `cbc` | Non-default (Access, lab) | YES | 37011 |
+| `sha1` | `aes192` | `cbc` | Spec-legal | THEOR | 37011 |
+| `sha1` | `aes{128,192,256}` | `cfb` | Spec-legal | THEOR | 37011 |
+| `sha1` | `3des112` | `cbc` | Non-default agile | YES | 37011 |
+| `sha256` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | 37012 |
+| `sha384` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | 37014 |
+| `sha512` | `aes256` | `cbc` | Office 2013+ default | YES | 37013 |
+| `sha512` | `aes{128,192}` | `cbc`/`cfb` | Spec-legal (5 combos) | THEOR | 37013 |
+| `md5` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | NONE |
+| `ripemd128` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | NONE |
+| `ripemd160` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | NONE |
+| `whirlpool` | `aes{128,192,256}` | `cbc`/`cfb` | Spec-legal (6 combos) | THEOR | NONE |
+
+### `$office-protect$` — 16 variants
+
+**ISO KDF** — salt prepended, iterator appended. 17 carrier elements. Kernels 37111-37115.
+
+| hash | kdf | iters | Producer | Corpus | Kernel |
+|------|-----|-------|----------|--------|--------|
+| `sha1` | `iso` | 1-10M | Office 2007/2010 default protection | YES | 37111 |
+| `sha512` | `iso` | 1-10M | Office 2013+ default protection | YES | 37114 |
+| `md4` | `iso` | 1-10M | Seen: workbookAlgorithmName="MD4" | YES | NONE |
+| `md5` | `iso` | 1-10M | Spec-legal algorithmName | THEOR | 37115 |
+| `sha256` | `iso` | 1-10M | Spec-legal | THEOR | 37112 |
+| `sha384` | `iso` | 1-10M | Spec-legal | THEOR | 37113 |
+| `ripemd128` | `iso` | 1-10M | Spec-legal | THEOR | NONE |
+| `ripemd160` | `iso` | 1-10M | Spec-legal | THEOR | NONE |
+| `whirlpool` | `iso` | 1-10M | Spec-legal | THEOR | NONE |
+
+**Crypt KDF** — Word 2007 / PPT three-stage legacy. cryptAlgorithmSid dispatch. Kernels 37116-37118.
+
+| hash | kdf | iters | SID | Producer | Corpus | Kernel |
+|------|-----|-------|-----|----------|--------|--------|
+| `sha1` | `crypt` | 1-5M | 4 | Word 2007 / PPT modifyVerifier default | YES | 37116 |
+| `md5` | `crypt` | 1-5M | 1 | Word 2007 with SID=1 | YES | 37116 |
+| `sha512` | `crypt` | 1-5M | 14 | Word 2016+ crypt dialect | YES | 37118 |
+| `md4` | `crypt` | 1-5M | 3 | Spec-legal SID | THEOR | NONE |
+| `md2` | `crypt` | 1-5M | 5 | Spec-legal SID | THEOR | NONE |
+| `sha256` | `crypt` | 1-5M | 12 | Spec-legal SID | THEOR | NONE |
+| `sha384` | `crypt` | 1-5M | 13 | Spec-legal SID | THEOR | NONE |
+
+### `$odf-open$` — 10 variants
+
+**PBKDF2 profiles** — module 37300.
+
+| startkey | kdf | cipher | iters | mem | lanes | ODF ver | Corpus | Kernel |
+|----------|-----|--------|-------|-----|-------|---------|--------|--------|
+| `sha1` | `pbkdf2` | `blowfish` | 1024 | `0` | `0` | 1.0/1.1 | YES | 37211 |
+| `sha1` | `pbkdf2` | `blowfish` | any | `0` | `0` | 1.1 custom | THEOR | 37211 |
+| `sha256` | `pbkdf2` | `aes256` | 100000 | `0` | `0` | 1.2 | YES | 37212 |
+| `sha256` | `pbkdf2` | `aes256` | any | `0` | `0` | 1.2 custom | THEOR | 37212 |
+| `sha256` | `pbkdf2` | `aes128` | any | `0` | `0` | 1.2 AES-128 | THEOR | NONE |
+| `sha256` | `pbkdf2` | `aes256gcm` | any | `0` | `0` | Hybrid transitional | THEOR | 37213 |
+| `sha1` | `pbkdf2` | `aes256` | any | `0` | `0` | Cross-version | THEOR | NONE |
+
+**Argon2id profiles** — module 37300 (GPU gap).
+
+| startkey | kdf | cipher | iters | mem | lanes | ODF ver | Corpus | Kernel |
+|----------|-----|--------|-------|-----|-------|---------|--------|--------|
+| `sha256` | `argon2` | `aes256gcm` | 3 | 65536 | 4 | 1.3 default | YES | 37315 |
+| `sha256` | `argon2` | `aes256gcm` | any | any | any | 1.3 custom | THEOR | 37315 |
+| `sha256` | `argon2` | `aes256` | any | any | any | 1.3 Argon2+CBC | THEOR | 37314 |
+
+### `$odf-protect$` — 3 variants
+
+| hash | kdf | iters | salt | Carrier | Corpus | Kernel |
+|------|-----|-------|------|---------|--------|--------|
+| `sha1` | `none` | `0` | (empty) | `table:table`, `text:section`, `office:spreadsheet`, `text:table-of-content`, `text:alphabetical-index`, `text:bibliography` | YES | raw SHA-1 |
+| `sha256` | `none` | `0` | (empty) | Same elements with `protection-key-digest-algorithm=#sha256` | THEOR | raw SHA-256 |
+| `sha1` | `pbkdf2` | 1-10M | 16B | `settings.xml` `ModifyPasswordInfo` | YES | PBKDF2-HMAC-SHA1 |
+
+### `$office-vba$` — 1 variant
+
+| hash | salt len | Producer | Corpus | Kernel |
+|------|----------|----------|--------|--------|
+| `sha1` | 4 bytes | All VBA-capable products: Word, Excel, PPT, Access, Visio, Project, Publisher, Outlook | YES | SHA-1 single-pass |
+
+### `$office-msisam$` — 2 variants
+
+| algo | salt len | Producer | Corpus | Kernel |
+|------|----------|----------|--------|--------|
+| `md5` | 8 bytes | Money 2002 (flag 0x06 set, 0x20 not set) | THEOR | MD5 + RC4 |
+| `sha1` | 8 bytes | Money 2003+ (flags 0x06 + 0x20 set) | YES | SHA-1 + RC4 |
+
+### Variant Summary
+
+| Scheme | Variants | In corpus | With kernel | No kernel |
+|--------|----------|-----------|-------------|-----------|
+| `$office-open$` | 68 | ~10 | 64 | 4 exotic agile hashes |
+| `$office-protect$` | 16 | 6 | 7 | 9 (MD4-ISO, exotic crypt SIDs) |
+| `$odf-open$` | 10 | 3 | 5 | 5 (AES-128, cross-ver, Argon2 GPU) |
+| `$odf-protect$` | 3 | 2 | 0 | 3 (module 37600 not built) |
+| `$office-vba$` | 1 | 1 | 1 | 0 |
+| `$office-msisam$` | 2 | 1 | 2 | 0 |
+| **Total** | **100** | **~23** | **79** | **21** |
 
 ## Implementation Order
 
@@ -996,3 +1213,47 @@ Every Office encryption scheme encodes the password differently. Getting the enc
   - `loext:argon2-iterations`, `loext:argon2-memory`, `loext:argon2-lanes` manifest attributes (Argon2id KDF — out of scope for these modules; PBKDF2 variant is in scope)
   - AES-256-GCM: stored member layout is `IV(12) || ciphertext || tag(16)`, nonce in both stream prefix and manifest attribute, empty AAD
   - LibreOffice core implementation: `package/source/zipapi/ZipFile.cxx` (Argon2id), `package/source/zipapi/ciphercontext.cxx` (GCM IV/tag handling)
+
+## Extractor API
+
+The extractor (WPAWolf `office-password-toolkit`) emits hashes using the following types. These are the contracts between the extractor and hashcat.
+
+### HashScheme
+
+```python
+class HashScheme(StrEnum):
+    OFFICE_OPEN    = "office-open"      # $office-open$    -> 37000 (ECMA-376) / 37100 (RC4)
+    OFFICE_PROTECT = "office-protect"   # $office-protect$ -> 37200
+    ODF_OPEN       = "odf-open"         # $odf-open$       -> 37300
+    ODF_PROTECT    = "odf-protect"      # $odf-protect$    -> 37600
+    VBA            = "vba"              # $office-vba$     -> 37400
+    MSISAM         = "msisam"           # $office-msisam$  -> 37500
+```
+
+Six members — one per prefix, one per module family.
+
+### ExtractedHash
+
+```python
+@dataclass(frozen=True)
+class ExtractedHash:
+    scheme: HashScheme          # which family — one per prefix
+    line: str                   # UNIFIED format (always present, always $prefix$*...)
+    gate: GateType              # OPEN, MODIFY, PROTECT_SHEET, VBA_PROJECT, ...
+    legacy_line: str | None     # old hashcat format or None
+    legacy_mode: int | None     # old -m (9400..25300, 100, 110, 1400) or None
+    mode: int | None            # new -m (37000..37600) or None
+```
+
+The `line` field always contains the unified format. The `legacy_line` field contains the old hashcat format when one exists (for backward compatibility with existing workflows). The `mode` field is `None` when the hash requires a module that is not yet built (e.g. `$odf-protect$` variants before module 37600 exists).
+
+## Changes from Current State
+
+| # | What | Detail |
+|---|------|--------|
+| 1 | `$odf$` -> `$odf-open$` | Prefix rename for family alignment. Hashcat 37300 accepts both `$odf$` and `$odf-open$` signatures. |
+| 2 | Raw hex -> `$odf-protect$*hash*kdf*iters*salt*digest` | Body protection + modify password merged under one prefix with `kdf` field dispatch: `none` = raw digest, `pbkdf2` = iterated. New module 37600. |
+| 3 | MSISAM digit -> string | `$office-msisam$1$` -> `$office-msisam$sha1$`. Module 37500 accepts both. |
+| 4 | VBA `line` = unified | Primary: `$office-vba$*sha1*hash*salt`. Legacy: `hash:salt`. |
+| 5 | `HashScheme` 9 -> 6 | 5 office-open variants -> 1. `OFFICE_SHEETPROT` -> `OFFICE_PROTECT`. `ODF` -> 2. `VBA_SHA1` -> `VBA`. |
+| 6 | `ExtractedHash` fields | `value` -> `line` (always unified). `opt_value` -> dropped. Add `legacy_line`, `legacy_mode`, `mode`. |

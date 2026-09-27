@@ -14,6 +14,7 @@
 #include M2S(INCLUDE_PATH/inc_hash_sha1.cl)
 #include M2S(INCLUDE_PATH/inc_hash_sha256.cl)
 #include M2S(INCLUDE_PATH/inc_cipher_aes.cl)
+#include M2S(INCLUDE_PATH/inc_cipher_aes-gcm.cl)
 #endif
 
 #define COMPARE_S M2S(INCLUDE_PATH/inc_comp_single.cl)
@@ -78,7 +79,7 @@ DECLSPEC void hmac_sha1_run_V (PRIVATE_AS u32x *w0, PRIVATE_AS u32x *w1, PRIVATE
   sha1_transform_vector (w0, w1, w2, w3, digest);
 }
 
-KERNEL_FQ KERNEL_FA void m37212_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
+KERNEL_FQ KERNEL_FA void m37213_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 {
   /**
    * base
@@ -96,7 +97,6 @@ KERNEL_FQ KERNEL_FA void m37212_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 
   sha256_final (&sha256_ctx);
 
-  // hmac key = hashed passphrase
   u32 k0[4];
   u32 k1[4];
   u32 k2[4];
@@ -119,7 +119,6 @@ KERNEL_FQ KERNEL_FA void m37212_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   k3[2] = 0;
   k3[3] = 0;
 
-  // hmac message = salt
   u32 m0[4];
   u32 m1[4];
   u32 m2[4];
@@ -158,7 +157,6 @@ KERNEL_FQ KERNEL_FA void m37212_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   tmps[gid].opad[3]  = sha1_hmac_ctx.opad.h[3];
   tmps[gid].opad[4]  = sha1_hmac_ctx.opad.h[4];
 
-  // first pbkdf iteration; key stretching
   for (u32 i = 0, j = 1; i < 8; i += 5, j += 1)
   {
     m1[0] = j;
@@ -183,7 +181,7 @@ KERNEL_FQ KERNEL_FA void m37212_init (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   }
 }
 
-KERNEL_FQ KERNEL_FA void m37212_loop (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
+KERNEL_FQ KERNEL_FA void m37213_loop (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 {
   const u64 gid = get_global_id (0);
 
@@ -204,7 +202,6 @@ KERNEL_FQ KERNEL_FA void m37212_loop (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   opad[3] = packv (tmps, opad, gid, 3);
   opad[4] = packv (tmps, opad, gid, 4);
 
-  // key stretching
   for (u32 i = 0; i < 8; i += 5)
   {
     u32x dgst[5];
@@ -269,7 +266,7 @@ KERNEL_FQ KERNEL_FA void m37212_loop (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   }
 }
 
-KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
+KERNEL_FQ KERNEL_FA void m37213_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 {
   const u64 gid = get_global_id (0);
   const u64 lid = get_local_id (0);
@@ -281,12 +278,6 @@ KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 
   #ifdef REAL_SHM
 
-  LOCAL_VK u32 s_td0[256];
-  LOCAL_VK u32 s_td1[256];
-  LOCAL_VK u32 s_td2[256];
-  LOCAL_VK u32 s_td3[256];
-  LOCAL_VK u32 s_td4[256];
-
   LOCAL_VK u32 s_te0[256];
   LOCAL_VK u32 s_te1[256];
   LOCAL_VK u32 s_te2[256];
@@ -295,12 +286,6 @@ KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
 
   for (u32 i = lid; i < 256; i += lsz)
   {
-    s_td0[i] = td0[i];
-    s_td1[i] = td1[i];
-    s_td2[i] = td2[i];
-    s_td3[i] = td3[i];
-    s_td4[i] = td4[i];
-
     s_te0[i] = te0[i];
     s_te1[i] = te1[i];
     s_te2[i] = te2[i];
@@ -311,12 +296,6 @@ KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   SYNC_THREADS ();
 
   #else
-
-  CONSTANT_AS u32a *s_td0 = td0;
-  CONSTANT_AS u32a *s_td1 = td1;
-  CONSTANT_AS u32a *s_td2 = td2;
-  CONSTANT_AS u32a *s_td3 = td3;
-  CONSTANT_AS u32a *s_td4 = td4;
 
   CONSTANT_AS u32a *s_te0 = te0;
   CONSTANT_AS u32a *s_te1 = te1;
@@ -343,9 +322,12 @@ KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   ukey[6] = hc_swap32_S (tmps[gid].out[6]);
   ukey[7] = hc_swap32_S (tmps[gid].out[7]);
 
-  u32 ks[60];
+  u32 key_len = 32 * 8;
 
-  aes256_set_decrypt_key (ks, ukey, s_te0, s_te1, s_te2, s_te3, s_td0, s_td1, s_td2, s_td3);
+  u32 key[60] = { 0 };
+  u32 subKey[4] = { 0 };
+
+  AES_GCM_Init (ukey, key_len, key, subKey, s_te0, s_te1, s_te2, s_te3, s_te4);
 
   GLOBAL_AS const odf_t *es = &esalt_bufs[DIGESTS_OFFSET_HOST];
 
@@ -354,59 +336,29 @@ KERNEL_FQ KERNEL_FA void m37212_comp (KERN_ATTR_TMPS_ESALT (odf_tmp_t, odf_t))
   iv[0] = es->iv[0];
   iv[1] = es->iv[1];
   iv[2] = es->iv[2];
-  iv[3] = es->iv[3];
+  iv[3] = 0;
 
-  u32 pt[256];
+  const u32 iv_len = es->iv_len;
 
-  for (int i = 0, j = 0; i < es->encrypted_len; i += 16, j += 4)
-  {
-    u32 ct[4];
+  u32 J0[4] = { 0 };
 
-    ct[0] = es->encrypted_data[j + 0];
-    ct[1] = es->encrypted_data[j + 1];
-    ct[2] = es->encrypted_data[j + 2];
-    ct[3] = es->encrypted_data[j + 3];
+  AES_GCM_Prepare_J0 (iv, iv_len, subKey, J0);
 
-    aes256_decrypt (ks, ct, pt + j, s_td0, s_td1, s_td2, s_td3, s_td4);
+  u32 T[4] = { 0 };
+  u32 S[4] = { 0 };
 
-    pt[j + 0] ^= iv[0];
-    pt[j + 1] ^= iv[1];
-    pt[j + 2] ^= iv[2];
-    pt[j + 3] ^= iv[3];
+  u32 S_len   = 16;
+  u32 aad_buf[4] = { 0 };
+  u32 aad_len = 0;
 
-    iv[0] = ct[0];
-    iv[1] = ct[1];
-    iv[2] = ct[2];
-    iv[3] = ct[3];
-  }
+  AES_GCM_GHASH_GLOBAL (subKey, aad_buf, aad_len, es->encrypted_data, es->encrypted_len, S);
 
-  const int full64 = es->encrypted_len / 64;
+  AES_GCM_GCTR (key, J0, S, S_len, T, s_te0, s_te1, s_te2, s_te3, s_te4);
 
-  const int encrypted_len64 = full64 * 64;
-
-  sha256_ctx_t sha256_ctx;
-
-  sha256_init (&sha256_ctx);
-
-  sha256_update_swap (&sha256_ctx, pt, encrypted_len64);
-
-  const int remaining64 = es->encrypted_len - encrypted_len64;
-
-  if (remaining64)
-  {
-    PRIVATE_AS u32 *pt_remaining = pt + (encrypted_len64 / 4);
-
-    truncate_block_16x4_be_S (pt_remaining + 0, pt_remaining + 4, pt_remaining + 8, pt_remaining + 12, remaining64);
-
-    sha256_update_swap (&sha256_ctx, pt_remaining, remaining64);
-  }
-
-  sha256_final (&sha256_ctx);
-
-  const u32 r0 = hc_swap32_S (sha256_ctx.h[0]);
-  const u32 r1 = hc_swap32_S (sha256_ctx.h[1]);
-  const u32 r2 = hc_swap32_S (sha256_ctx.h[2]);
-  const u32 r3 = hc_swap32_S (sha256_ctx.h[3]);
+  const u32 r0 = T[0];
+  const u32 r1 = T[1];
+  const u32 r2 = T[2];
+  const u32 r3 = T[3];
 
   #define il_pos 0
 

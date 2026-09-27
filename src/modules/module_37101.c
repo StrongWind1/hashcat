@@ -20,7 +20,7 @@ static const u32   DGST_POS3      = 3;
 static const u32   DGST_SIZE      = DGST_SIZE_4_4;
 static const u32   HASH_CATEGORY  = HASH_CATEGORY_DOCUMENTS;
 static const char *HASH_NAME      = "MS Office Document-Open (Legacy RC4), collider #1";
-static const u64   KERN_TYPE      = 37111;
+static const u64   KERN_TYPE      = 37041;
 static const u32   OPTI_TYPE      = OPTI_TYPE_ZERO_BYTE
                                   | OPTI_TYPE_PRECOMPUTE_INIT
                                   | OPTI_TYPE_NOT_ITERATED;
@@ -67,8 +67,8 @@ static const char *SIGNATURE_OFFICE_OPEN = "$office-open$";
 
 enum
 {
-  KERN_TYPE_OFFICE_RC4_SHA1_COLL1 = 37111,
-  KERN_TYPE_OFFICE_RC4_MD5_COLL1  = 37151,
+  KERN_TYPE_OFFICE_RC4_SHA1_COLL1 = 37041,
+  KERN_TYPE_OFFICE_RC4_MD5_COLL1  = 37031,
 };
 
 u64 module_kern_type_dynamic (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const void *digest_buf, MAYBE_UNUSED const salt_t *salt, MAYBE_UNUSED const void *esalt_buf, MAYBE_UNUSED const void *hook_salt_buf, MAYBE_UNUSED const hashinfo_t *hash_info)

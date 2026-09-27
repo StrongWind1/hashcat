@@ -12,6 +12,7 @@
 #include M2S(INCLUDE_PATH/inc_common.cl)
 #include M2S(INCLUDE_PATH/inc_scalar.cl)
 #include M2S(INCLUDE_PATH/inc_hash_sha1.cl)
+#include M2S(INCLUDE_PATH/inc_hash_md5.cl)
 #include M2S(INCLUDE_PATH/inc_cipher_rc4.cl)
 #endif
 
@@ -142,6 +143,8 @@ KERNEL_FQ KERNEL_FA void m37510_mxx (KERN_ATTR_ESALT (office_msisam_t))
 
   LOCAL_VK u32 S[64 * FIXED_LOCAL_SIZE];
 
+  const u32 hash_type = esalt_bufs[DIGESTS_OFFSET_HOST].hash_type;
+
   u32 crypt_check[4];
 
   crypt_check[0] = esalt_bufs[DIGESTS_OFFSET_HOST].crypt_check[0];
@@ -194,20 +197,38 @@ KERNEL_FQ KERNEL_FA void m37510_mxx (KERN_ATTR_ESALT (office_msisam_t))
       pw20[idx20] &= mask;
     }
 
-    sha1_ctx_t ctx;
-
-    sha1_init (&ctx);
-
-    sha1_update_utf16le_swap (&ctx, pw20, 20);
-
-    sha1_final (&ctx);
-
     u32 rc4key[6];
 
-    rc4key[0] = hc_swap32_S (ctx.h[0]);
-    rc4key[1] = hc_swap32_S (ctx.h[1]);
-    rc4key[2] = hc_swap32_S (ctx.h[2]);
-    rc4key[3] = hc_swap32_S (ctx.h[3]);
+    if (hash_type == 1)
+    {
+      sha1_ctx_t ctx;
+
+      sha1_init (&ctx);
+
+      sha1_update_utf16le_swap (&ctx, pw20, 20);
+
+      sha1_final (&ctx);
+
+      rc4key[0] = hc_swap32_S (ctx.h[0]);
+      rc4key[1] = hc_swap32_S (ctx.h[1]);
+      rc4key[2] = hc_swap32_S (ctx.h[2]);
+      rc4key[3] = hc_swap32_S (ctx.h[3]);
+    }
+    else
+    {
+      md5_ctx_t ctx;
+
+      md5_init (&ctx);
+
+      md5_update_utf16le (&ctx, pw20, 20);
+
+      md5_final (&ctx);
+
+      rc4key[0] = ctx.h[0];
+      rc4key[1] = ctx.h[1];
+      rc4key[2] = ctx.h[2];
+      rc4key[3] = ctx.h[3];
+    }
     rc4key[4] = salt_bufs[SALT_POS_HOST].salt_buf[0];
     rc4key[5] = salt_bufs[SALT_POS_HOST].salt_buf[1];
 
@@ -242,6 +263,8 @@ KERNEL_FQ KERNEL_FA void m37510_sxx (KERN_ATTR_ESALT (office_msisam_t))
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
+  const u32 hash_type = esalt_bufs[DIGESTS_OFFSET_HOST].hash_type;
+
   u32 crypt_check[4];
 
   crypt_check[0] = esalt_bufs[DIGESTS_OFFSET_HOST].crypt_check[0];
@@ -294,20 +317,38 @@ KERNEL_FQ KERNEL_FA void m37510_sxx (KERN_ATTR_ESALT (office_msisam_t))
       pw20[idx20] &= mask;
     }
 
-    sha1_ctx_t ctx;
-
-    sha1_init (&ctx);
-
-    sha1_update_utf16le_swap (&ctx, pw20, 20);
-
-    sha1_final (&ctx);
-
     u32 rc4key[6];
 
-    rc4key[0] = hc_swap32_S (ctx.h[0]);
-    rc4key[1] = hc_swap32_S (ctx.h[1]);
-    rc4key[2] = hc_swap32_S (ctx.h[2]);
-    rc4key[3] = hc_swap32_S (ctx.h[3]);
+    if (hash_type == 1)
+    {
+      sha1_ctx_t ctx;
+
+      sha1_init (&ctx);
+
+      sha1_update_utf16le_swap (&ctx, pw20, 20);
+
+      sha1_final (&ctx);
+
+      rc4key[0] = hc_swap32_S (ctx.h[0]);
+      rc4key[1] = hc_swap32_S (ctx.h[1]);
+      rc4key[2] = hc_swap32_S (ctx.h[2]);
+      rc4key[3] = hc_swap32_S (ctx.h[3]);
+    }
+    else
+    {
+      md5_ctx_t ctx;
+
+      md5_init (&ctx);
+
+      md5_update_utf16le (&ctx, pw20, 20);
+
+      md5_final (&ctx);
+
+      rc4key[0] = ctx.h[0];
+      rc4key[1] = ctx.h[1];
+      rc4key[2] = ctx.h[2];
+      rc4key[3] = ctx.h[3];
+    }
     rc4key[4] = salt_bufs[SALT_POS_HOST].salt_buf[0];
     rc4key[5] = salt_bufs[SALT_POS_HOST].salt_buf[1];
 

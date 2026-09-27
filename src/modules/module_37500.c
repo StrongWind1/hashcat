@@ -25,12 +25,10 @@ static const u32   OPTI_TYPE      = OPTI_TYPE_ZERO_BYTE
                                   | OPTI_TYPE_PRECOMPUTE_INIT
                                   | OPTI_TYPE_NOT_ITERATED;
 static const u64   OPTS_TYPE      = OPTS_TYPE_STOCK_MODULE
-                                  | OPTS_TYPE_PT_GENERATE_LE
-                                  | OPTS_TYPE_PT_UTF16LE
-                                  | OPTS_TYPE_SELF_TEST_DISABLE;
+                                  | OPTS_TYPE_PT_GENERATE_LE;
 static const u32   SALT_TYPE      = SALT_TYPE_EMBEDDED;
-static const char *ST_PASS        = NULL;
-static const char *ST_HASH        = NULL;
+static const char *ST_PASS        = "hashcat";
+static const char *ST_HASH        = "$office-msisam$sha1$deadbeefcafebabe$05638d46$0";
 
 u32         module_attack_exec    (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ATTACK_EXEC;     }
 u32         module_dgst_pos0      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS0;       }
@@ -56,13 +54,6 @@ typedef struct office_msisam
 
 } office_msisam_t;
 
-typedef enum kern_type_msisam
-{
-  KERN_TYPE_MSISAM_SHA1 = 37510,
-  KERN_TYPE_MSISAM_MD5  = 37550,
-
-} kern_type_msisam_t;
-
 static const char *SIGNATURE_MSISAM = "$office-msisam$";
 
 u64 module_esalt_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
@@ -70,28 +61,6 @@ u64 module_esalt_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED
   const u64 esalt_size = (const u64) sizeof (office_msisam_t);
 
   return esalt_size;
-}
-
-u64 module_kern_type_dynamic (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const void *digest_buf, MAYBE_UNUSED const salt_t *salt, MAYBE_UNUSED const void *esalt_buf, MAYBE_UNUSED const void *hook_salt_buf, MAYBE_UNUSED const hashinfo_t *hash_info)
-{
-  const office_msisam_t *office_msisam = (const office_msisam_t *) esalt_buf;
-
-  u64 kern_type = (u64) -1;
-
-  if (office_msisam->hash_type == 0)
-  {
-    kern_type = KERN_TYPE_MSISAM_MD5;
-  }
-  else if (office_msisam->hash_type == 1)
-  {
-    kern_type = KERN_TYPE_MSISAM_SHA1;
-  }
-  else
-  {
-    return (PARSER_HASH_VALUE);
-  }
-
-  return kern_type;
 }
 
 void *module_benchmark_esalt (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
@@ -334,7 +303,7 @@ void module_init (module_ctx_t *module_ctx)
   module_ctx->module_kernel_threads_max       = MODULE_DEFAULT;
   module_ctx->module_kernel_threads_min       = MODULE_DEFAULT;
   module_ctx->module_kern_type                = module_kern_type;
-  module_ctx->module_kern_type_dynamic        = module_kern_type_dynamic;
+  module_ctx->module_kern_type_dynamic        = MODULE_DEFAULT;
   module_ctx->module_opti_type                = module_opti_type;
   module_ctx->module_opts_type                = module_opts_type;
   module_ctx->module_outfile_check_disable    = MODULE_DEFAULT;
