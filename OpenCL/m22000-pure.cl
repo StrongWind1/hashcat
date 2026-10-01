@@ -27,16 +27,15 @@
 #include "inc_cipher_aes.h"
 #endif
 
-// The host compiles this file into the module that wants its helpers. There DECLSPEC says the
-// function is part of what the core offers a plugin, and these are not: they are the module's own
-// copy of a kernel and they stay inside it. inc_rp_common.cl says the same thing the same way.
-//
-// A module takes the helpers it wants and leaves the rest, so the ones it left have to be allowed to
-// go unused.
-
 #ifdef IS_NATIVE
 #undef DECLSPEC
 #define DECLSPEC static MAYBE_UNUSED
+#define ENABLE_TYPE_01
+#define ENABLE_TYPE_02
+#define ENABLE_TYPE_03
+#define ENABLE_TYPE_04
+#define ENABLE_TYPE_05
+#define ENABLE_TYPE_06
 #endif
 
 #define COMPARE_S M2S(INCLUDE_PATH/inc_comp_single.cl)
@@ -60,24 +59,26 @@ typedef struct wpa
   u32  mac_ap[2];
   u32  mac_sta[2];
 
-  u32  type;            // 1 = PMKID, 2 = EAPOL
-
-  // PMKID specific
+  u32  type;            // 1-6
 
   u32  pmkid[4];
-  u32  pmkid_data[16];
-
-  // EAPOL specific
+  u32  pmkid_data[32];
 
   u32  keymic[4];
   u32  anonce[8];
 
   u32  keyver;
 
-  u32  eapol[64 + 16];
+  u32  eapol[256 + 16];
   u32  eapol_len;
 
   u32  pke[32];
+
+  u32  mdid[1];
+  u32  r0khid[12]; u32 r0khid_len;
+  u32  r1khid[12]; u32 r1khid_len;
+  u32  pke_r0[32];
+  u32  pke_r1[32];
 
   int  message_pair_chgd;
   u32  message_pair;
@@ -90,6 +91,8 @@ typedef struct wpa
   int  detected_be;
 
 } wpa_t;
+
+// --- AES-CMAC subkey derivation ---
 
 DECLSPEC void make_kn (PRIVATE_AS u32 *k)
 {
@@ -120,6 +123,8 @@ DECLSPEC void make_kn (PRIVATE_AS u32 *k)
 
   k[3] ^= c * 0x87000000;
 }
+
+// --- PBKDF2 loop helper ---
 
 DECLSPEC void hmac_sha1_run_V (PRIVATE_AS u32x *w0, PRIVATE_AS u32x *w1, PRIVATE_AS u32x *w2, PRIVATE_AS u32x *w3, PRIVATE_AS const u32x *ipad, PRIVATE_AS const u32x *opad, PRIVATE_AS u32x *digest)
 {
@@ -157,12 +162,628 @@ DECLSPEC void hmac_sha1_run_V (PRIVATE_AS u32x *w0, PRIVATE_AS u32x *w1, PRIVATE
   sha1_transform_vector (w0, w1, w2, w3, digest);
 }
 
+// --- Post-PMK verifiers. Each returns 1 on match, 0 otherwise. ---
+
+// type 01 PMKID: HMAC-SHA1(PMK, "PMK Name" || AP || STA)
+DECLSPEC int wpa_check_pmkid_sha1 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa)
+{
+  sha1_hmac_ctx_t ctx;
+  sha1_hmac_init (&ctx, pmk, 32);
+  sha1_hmac_update_global_swap (&ctx, wpa->pmkid_data, 20);
+  sha1_hmac_final (&ctx);
+
+  return (hc_swap32_S (ctx.opad.h[0]) == wpa->pmkid[0])
+      && (hc_swap32_S (ctx.opad.h[1]) == wpa->pmkid[1])
+      && (hc_swap32_S (ctx.opad.h[2]) == wpa->pmkid[2])
+      && (hc_swap32_S (ctx.opad.h[3]) == wpa->pmkid[3]);
+}
+
+// type 03 PSK-SHA256-PMKID: HMAC-SHA256(PMK, "PMK Name" || AP || STA)
+DECLSPEC int wpa_check_pmkid_sha256 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa)
+{
+  sha256_hmac_ctx_t ctx;
+  sha256_hmac_init (&ctx, pmk, 32);
+  sha256_hmac_update_global_swap (&ctx, wpa->pmkid_data, 20);
+  sha256_hmac_final (&ctx);
+
+  return (hc_swap32_S (ctx.opad.h[0]) == wpa->pmkid[0])
+      && (hc_swap32_S (ctx.opad.h[1]) == wpa->pmkid[1])
+      && (hc_swap32_S (ctx.opad.h[2]) == wpa->pmkid[2])
+      && (hc_swap32_S (ctx.opad.h[3]) == wpa->pmkid[3]);
+}
+
+// type 05 FT-PSK-PMKID: SHA-256 FT chain -> PMKR1Name
+DECLSPEC int wpa_check_ft_pmkid_sha256 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa)
+{
+  u32 pke[32];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke_r0[i];
+
+  sha256_hmac_ctx_t ctx1;
+
+  sha256_hmac_init (&ctx1, pmk, 32);
+  sha256_hmac_update (&ctx1, pke, 19 + wpa->essid_len + wpa->r0khid_len);
+  sha256_hmac_final (&ctx1);
+
+  pke[ 0] = 0x46542d52;
+  pke[ 1] = 0x304e0000 | (ctx1.opad.h[0] >> 16);
+  pke[ 2] = (ctx1.opad.h[0] << 16) | (ctx1.opad.h[1] >> 16);
+  pke[ 3] = (ctx1.opad.h[1] << 16) | (ctx1.opad.h[2] >> 16);
+  pke[ 4] = (ctx1.opad.h[2] << 16) | (ctx1.opad.h[3] >> 16);
+  pke[ 5] = (ctx1.opad.h[3] << 16);
+
+  for (int i = 6; i < 32; i++) pke[i] = 0;
+
+  sha256_ctx_t ctx2;
+
+  sha256_init (&ctx2);
+  sha256_update (&ctx2, pke, 22);
+  sha256_final (&ctx2);
+
+  pke[ 0] = wpa->pmkid_data[ 0];
+  pke[ 1] = wpa->pmkid_data[ 1] | (ctx2.h[0] >> 16);
+  pke[ 2] = wpa->pmkid_data[ 2] | (ctx2.h[0] << 16) | (ctx2.h[1] >> 16);
+  pke[ 3] = wpa->pmkid_data[ 3] | (ctx2.h[1] << 16) | (ctx2.h[2] >> 16);
+  pke[ 4] = wpa->pmkid_data[ 4] | (ctx2.h[2] << 16) | (ctx2.h[3] >> 16);
+  pke[ 5] = wpa->pmkid_data[ 5] | (ctx2.h[3] << 16);
+
+  for (int i = 6; i < 32; i++) pke[i] = wpa->pmkid_data[i];
+
+  sha256_init (&ctx2);
+  sha256_update (&ctx2, pke, 28 + wpa->r1khid_len);
+  sha256_final (&ctx2);
+
+  return (hc_swap32_S (ctx2.h[0]) == wpa->pmkid[0])
+      && (hc_swap32_S (ctx2.h[1]) == wpa->pmkid[1])
+      && (hc_swap32_S (ctx2.h[2]) == wpa->pmkid[2])
+      && (hc_swap32_S (ctx2.h[3]) == wpa->pmkid[3]);
+}
+
+// type 02 keyver 1: PRF-SHA1 PTK -> HMAC-MD5 MIC
+DECLSPEC int wpa_check_eapol_md5 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa)
+{
+  u32 pke[32];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke[i];
+
+  u32 z[4] = { 0, 0, 0, 0 };
+
+  u32 to, m0, m1;
+
+  if (wpa->nonce_compare < 0)
+  {
+    m0 = pke[15] & ~0x000000ff; m1 = pke[16] & ~0xffffff00;
+    to = pke[15] << 24 | pke[16] >> 8;
+  }
+  else
+  {
+    m0 = pke[23] & ~0x000000ff; m1 = pke[24] & ~0xffffff00;
+    to = pke[23] << 24 | pke[24] >> 8;
+  }
+
+  u32 bo_loops = wpa->detected_le + wpa->detected_be;
+
+  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
+
+  const u32 nec = wpa->nonce_error_corrections;
+
+  for (u32 nc = 0; nc <= nec; nc++)
+  {
+    for (u32 bo = 0; bo < bo_loops; bo++)
+    {
+      u32 t = to;
+
+      if (bo_loops == 1)
+      {
+        if (wpa->detected_le == 1)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (wpa->detected_be == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+      else
+      {
+        if (bo == 0)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (bo == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+
+      if (wpa->nonce_compare < 0)
+      {
+        pke[15] = m0 | (t >> 24);
+        pke[16] = m1 | (t <<  8);
+      }
+      else
+      {
+        pke[23] = m0 | (t >> 24);
+        pke[24] = m1 | (t <<  8);
+      }
+
+      sha1_hmac_ctx_t ctx1;
+
+      sha1_hmac_init_64 (&ctx1, pmk, pmk + 4, z, z);
+      sha1_hmac_update (&ctx1, pke, 100);
+      sha1_hmac_final (&ctx1);
+
+      ctx1.opad.h[0] = hc_swap32_S (ctx1.opad.h[0]);
+      ctx1.opad.h[1] = hc_swap32_S (ctx1.opad.h[1]);
+      ctx1.opad.h[2] = hc_swap32_S (ctx1.opad.h[2]);
+      ctx1.opad.h[3] = hc_swap32_S (ctx1.opad.h[3]);
+
+      md5_hmac_ctx_t ctx2;
+
+      md5_hmac_init_64 (&ctx2, ctx1.opad.h, z, z, z);
+      md5_hmac_update_global (&ctx2, wpa->eapol, wpa->eapol_len);
+      md5_hmac_final (&ctx2);
+
+      if ((hc_swap32_S (ctx2.opad.h[0]) == wpa->keymic[0])
+       && (hc_swap32_S (ctx2.opad.h[1]) == wpa->keymic[1])
+       && (hc_swap32_S (ctx2.opad.h[2]) == wpa->keymic[2])
+       && (hc_swap32_S (ctx2.opad.h[3]) == wpa->keymic[3])) return 1;
+    }
+  }
+
+  return 0;
+}
+
+// type 02 keyver 2: PRF-SHA1 PTK -> HMAC-SHA1 MIC
+DECLSPEC int wpa_check_eapol_sha1 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa)
+{
+  u32 pke[32];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke[i];
+
+  u32 z[4] = { 0, 0, 0, 0 };
+
+  u32 to, m0, m1;
+
+  if (wpa->nonce_compare < 0)
+  {
+    m0 = pke[15] & ~0x000000ff; m1 = pke[16] & ~0xffffff00;
+    to = pke[15] << 24 | pke[16] >> 8;
+  }
+  else
+  {
+    m0 = pke[23] & ~0x000000ff; m1 = pke[24] & ~0xffffff00;
+    to = pke[23] << 24 | pke[24] >> 8;
+  }
+
+  u32 bo_loops = wpa->detected_le + wpa->detected_be;
+
+  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
+
+  const u32 nec = wpa->nonce_error_corrections;
+
+  for (u32 nc = 0; nc <= nec; nc++)
+  {
+    for (u32 bo = 0; bo < bo_loops; bo++)
+    {
+      u32 t = to;
+
+      if (bo_loops == 1)
+      {
+        if (wpa->detected_le == 1)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (wpa->detected_be == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+      else
+      {
+        if (bo == 0)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (bo == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+
+      if (wpa->nonce_compare < 0)
+      {
+        pke[15] = m0 | (t >> 24);
+        pke[16] = m1 | (t <<  8);
+      }
+      else
+      {
+        pke[23] = m0 | (t >> 24);
+        pke[24] = m1 | (t <<  8);
+      }
+
+      sha1_hmac_ctx_t ctx1;
+
+      sha1_hmac_init_64 (&ctx1, pmk, pmk + 4, z, z);
+      sha1_hmac_update (&ctx1, pke, 100);
+      sha1_hmac_final (&ctx1);
+
+      sha1_hmac_ctx_t ctx2;
+
+      sha1_hmac_init_64 (&ctx2, ctx1.opad.h, z, z, z);
+      sha1_hmac_update_global (&ctx2, wpa->eapol, wpa->eapol_len);
+      sha1_hmac_final (&ctx2);
+
+      if ((ctx2.opad.h[0] == wpa->keymic[0])
+       && (ctx2.opad.h[1] == wpa->keymic[1])
+       && (ctx2.opad.h[2] == wpa->keymic[2])
+       && (ctx2.opad.h[3] == wpa->keymic[3])) return 1;
+    }
+  }
+
+  return 0;
+}
+
+// type 02 keyver 3 / type 04: KDF-SHA256 PTK -> AES-128-CMAC MIC
+DECLSPEC int wpa_check_eapol_cmac256 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa, SHM_TYPE u32 *s_te0, SHM_TYPE u32 *s_te1, SHM_TYPE u32 *s_te2, SHM_TYPE u32 *s_te3, SHM_TYPE u32 *s_te4)
+{
+  u32 pke[32];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke[i];
+
+  u32 z[4] = { 0, 0, 0, 0 };
+
+  u32 to, m0, m1;
+
+  if (wpa->nonce_compare < 0)
+  {
+    m0 = pke[15] & ~0x000000ff; m1 = pke[16] & ~0xffffff00;
+    to = pke[15] << 24 | pke[16] >> 8;
+  }
+  else
+  {
+    m0 = pke[23] & ~0x000000ff; m1 = pke[24] & ~0xffffff00;
+    to = pke[23] << 24 | pke[24] >> 8;
+  }
+
+  u32 bo_loops = wpa->detected_le + wpa->detected_be;
+
+  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
+
+  const u32 nec = wpa->nonce_error_corrections;
+
+  for (u32 nc = 0; nc <= nec; nc++)
+  {
+    for (u32 bo = 0; bo < bo_loops; bo++)
+    {
+      u32 t = to;
+
+      if (bo_loops == 1)
+      {
+        if (wpa->detected_le == 1)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (wpa->detected_be == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+      else
+      {
+        if (bo == 0)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (bo == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+
+      if (wpa->nonce_compare < 0)
+      {
+        pke[15] = m0 | (t >> 24);
+        pke[16] = m1 | (t <<  8);
+      }
+      else
+      {
+        pke[23] = m0 | (t >> 24);
+        pke[24] = m1 | (t <<  8);
+      }
+
+      sha256_hmac_ctx_t ctx1;
+
+      sha256_hmac_init_64 (&ctx1, pmk, pmk + 4, z, z);
+      sha256_hmac_update (&ctx1, pke, 102);
+      sha256_hmac_final (&ctx1);
+
+      ctx1.opad.h[0] = hc_swap32_S (ctx1.opad.h[0]);
+      ctx1.opad.h[1] = hc_swap32_S (ctx1.opad.h[1]);
+      ctx1.opad.h[2] = hc_swap32_S (ctx1.opad.h[2]);
+      ctx1.opad.h[3] = hc_swap32_S (ctx1.opad.h[3]);
+
+      u32 ks[44];
+
+      aes128_set_encrypt_key (ks, ctx1.opad.h, s_te0, s_te1, s_te2, s_te3);
+
+      u32 m[4]  = { 0, 0, 0, 0 };
+      u32 iv[4] = { 0, 0, 0, 0 };
+
+      int eapol_left;
+      int eapol_idx;
+
+      for (eapol_left = wpa->eapol_len, eapol_idx = 0; eapol_left > 16; eapol_left -= 16, eapol_idx += 4)
+      {
+        m[0] = wpa->eapol[eapol_idx + 0] ^ iv[0];
+        m[1] = wpa->eapol[eapol_idx + 1] ^ iv[1];
+        m[2] = wpa->eapol[eapol_idx + 2] ^ iv[2];
+        m[3] = wpa->eapol[eapol_idx + 3] ^ iv[3];
+
+        aes128_encrypt (ks, m, iv, s_te0, s_te1, s_te2, s_te3, s_te4);
+      }
+
+      m[0] = wpa->eapol[eapol_idx + 0];
+      m[1] = wpa->eapol[eapol_idx + 1];
+      m[2] = wpa->eapol[eapol_idx + 2];
+      m[3] = wpa->eapol[eapol_idx + 3];
+
+      u32 k[4] = { 0, 0, 0, 0 };
+
+      aes128_encrypt (ks, k, k, s_te0, s_te1, s_te2, s_te3, s_te4);
+
+      make_kn (k);
+
+      if (eapol_left < 16)
+      {
+        make_kn (k);
+      }
+
+      m[0] ^= k[0]; m[1] ^= k[1]; m[2] ^= k[2]; m[3] ^= k[3];
+      m[0] ^= iv[0]; m[1] ^= iv[1]; m[2] ^= iv[2]; m[3] ^= iv[3];
+
+      u32 keymic[4] = { 0, 0, 0, 0 };
+
+      aes128_encrypt (ks, m, keymic, s_te0, s_te1, s_te2, s_te3, s_te4);
+
+      keymic[0] = hc_swap32_S (keymic[0]);
+      keymic[1] = hc_swap32_S (keymic[1]);
+      keymic[2] = hc_swap32_S (keymic[2]);
+      keymic[3] = hc_swap32_S (keymic[3]);
+
+      if ((keymic[0] == wpa->keymic[0])
+       && (keymic[1] == wpa->keymic[1])
+       && (keymic[2] == wpa->keymic[2])
+       && (keymic[3] == wpa->keymic[3])) return 1;
+    }
+  }
+
+  return 0;
+}
+
+// type 06 FT-PSK-EAPOL: SHA-256 FT chain (PMK -> R0 -> R1 -> FT-PTK) -> AES-128-CMAC MIC
+DECLSPEC int wpa_check_ft_eapol_cmac256 (PRIVATE_AS const u32 *pmk, GLOBAL_AS const wpa_t *wpa, SHM_TYPE u32 *s_te0, SHM_TYPE u32 *s_te1, SHM_TYPE u32 *s_te2, SHM_TYPE u32 *s_te3, SHM_TYPE u32 *s_te4)
+{
+  u32 z[4] = { 0, 0, 0, 0 };
+  u32 pke[32];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke_r0[i];
+
+  sha256_hmac_ctx_t ctx1;
+
+  sha256_hmac_init (&ctx1, pmk, 32);
+  sha256_hmac_update (&ctx1, pke, 19 + wpa->essid_len + wpa->r0khid_len);
+  sha256_hmac_final (&ctx1);
+
+  u32 out0[4]; u32 out1[4];
+
+  out0[0] = ctx1.opad.h[0]; out0[1] = ctx1.opad.h[1]; out0[2] = ctx1.opad.h[2]; out0[3] = ctx1.opad.h[3];
+  out1[0] = ctx1.opad.h[4]; out1[1] = ctx1.opad.h[5]; out1[2] = ctx1.opad.h[6]; out1[3] = ctx1.opad.h[7];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke_r1[i];
+
+  sha256_hmac_init_64 (&ctx1, out0, out1, z, z);
+  sha256_hmac_update (&ctx1, pke, 15 + wpa->r1khid_len);
+  sha256_hmac_final (&ctx1);
+
+  out0[0] = ctx1.opad.h[0]; out0[1] = ctx1.opad.h[1]; out0[2] = ctx1.opad.h[2]; out0[3] = ctx1.opad.h[3];
+  out1[0] = ctx1.opad.h[4]; out1[1] = ctx1.opad.h[5]; out1[2] = ctx1.opad.h[6]; out1[3] = ctx1.opad.h[7];
+
+  for (int i = 0; i < 32; i++) pke[i] = wpa->pke[i];
+
+  u32 to = pke[17];
+
+  u32 bo_loops = wpa->detected_le + wpa->detected_be;
+
+  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
+
+  const u32 nec = wpa->nonce_error_corrections;
+
+  for (u32 nc = 0; nc <= nec; nc++)
+  {
+    for (u32 bo = 0; bo < bo_loops; bo++)
+    {
+      u32 t = to;
+
+      if (bo_loops == 1)
+      {
+        if (wpa->detected_le == 1)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (wpa->detected_be == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+      else
+      {
+        if (bo == 0)
+        {
+          t -= nec / 2;
+          t += nc;
+        }
+        else if (bo == 1)
+        {
+          t = hc_swap32_S (t);
+          t -= nec / 2;
+          t += nc;
+          t = hc_swap32_S (t);
+        }
+      }
+
+      pke[17] = t;
+
+      sha256_hmac_init_64 (&ctx1, out0, out1, z, z);
+      sha256_hmac_update (&ctx1, pke, 86);
+      sha256_hmac_final (&ctx1);
+
+      ctx1.opad.h[0] = hc_swap32_S (ctx1.opad.h[0]);
+      ctx1.opad.h[1] = hc_swap32_S (ctx1.opad.h[1]);
+      ctx1.opad.h[2] = hc_swap32_S (ctx1.opad.h[2]);
+      ctx1.opad.h[3] = hc_swap32_S (ctx1.opad.h[3]);
+
+      u32 ks[44];
+
+      aes128_set_encrypt_key (ks, ctx1.opad.h, s_te0, s_te1, s_te2, s_te3);
+
+      u32 m[4]  = { 0, 0, 0, 0 };
+      u32 iv[4] = { 0, 0, 0, 0 };
+
+      int eapol_left;
+      int eapol_idx;
+
+      for (eapol_left = wpa->eapol_len, eapol_idx = 0; eapol_left > 16; eapol_left -= 16, eapol_idx += 4)
+      {
+        m[0] = wpa->eapol[eapol_idx + 0] ^ iv[0];
+        m[1] = wpa->eapol[eapol_idx + 1] ^ iv[1];
+        m[2] = wpa->eapol[eapol_idx + 2] ^ iv[2];
+        m[3] = wpa->eapol[eapol_idx + 3] ^ iv[3];
+
+        aes128_encrypt (ks, m, iv, s_te0, s_te1, s_te2, s_te3, s_te4);
+      }
+
+      m[0] = wpa->eapol[eapol_idx + 0];
+      m[1] = wpa->eapol[eapol_idx + 1];
+      m[2] = wpa->eapol[eapol_idx + 2];
+      m[3] = wpa->eapol[eapol_idx + 3];
+
+      u32 k[4] = { 0, 0, 0, 0 };
+
+      aes128_encrypt (ks, k, k, s_te0, s_te1, s_te2, s_te3, s_te4);
+
+      make_kn (k);
+
+      if (eapol_left < 16)
+      {
+        make_kn (k);
+      }
+
+      m[0] ^= k[0]; m[1] ^= k[1]; m[2] ^= k[2]; m[3] ^= k[3];
+      m[0] ^= iv[0]; m[1] ^= iv[1]; m[2] ^= iv[2]; m[3] ^= iv[3];
+
+      u32 keymic[4] = { 0, 0, 0, 0 };
+
+      aes128_encrypt (ks, m, keymic, s_te0, s_te1, s_te2, s_te3, s_te4);
+
+      keymic[0] = hc_swap32_S (keymic[0]);
+      keymic[1] = hc_swap32_S (keymic[1]);
+      keymic[2] = hc_swap32_S (keymic[2]);
+      keymic[3] = hc_swap32_S (keymic[3]);
+
+      if ((keymic[0] == wpa->keymic[0])
+       && (keymic[1] == wpa->keymic[1])
+       && (keymic[2] == wpa->keymic[2])
+       && (keymic[3] == wpa->keymic[3])) return 1;
+    }
+  }
+
+  return 0;
+}
+
+// --- Aux kernel macros ---
+
+#define WPA_AUX_PROLOGUE                                         \
+  const u64 gid = get_global_id (0);                             \
+  if (gid >= GID_CNT) return;                                    \
+  const u32 digest_pos = LOOP_POS;                               \
+  const u32 digest_cur = DIGESTS_OFFSET_HOST + digest_pos;       \
+  GLOBAL_AS const wpa_t *wpa = &esalt_bufs[digest_cur];          \
+  u32 pmk[32];                                                   \
+  for (int wi = 0; wi < 32; wi++) pmk[wi] = 0;                   \
+  pmk[0] = tmps[gid].out[0]; pmk[1] = tmps[gid].out[1];          \
+  pmk[2] = tmps[gid].out[2]; pmk[3] = tmps[gid].out[3];          \
+  pmk[4] = tmps[gid].out[4]; pmk[5] = tmps[gid].out[5];          \
+  pmk[6] = tmps[gid].out[6]; pmk[7] = tmps[gid].out[7];
+
+#define WPA_MARK_IF(matched)                                                                            \
+  if (matched)                                                                                          \
+  {                                                                                                     \
+    if (hc_atomic_inc (&hashes_shown[digest_cur]) == 0)                                                 \
+    {                                                                                                   \
+      mark_hash (plains_buf, d_return_buf, SALT_POS_HOST, DIGESTS_CNT, digest_pos, digest_cur, gid, 0, 0, 0); \
+    }                                                                                                   \
+  }
+
+#ifdef REAL_SHM
+#define WPA_AES_SHARED                                           \
+  const u64 lid = get_local_id (0);                              \
+  const u64 lsz = get_local_size (0);                            \
+  LOCAL_VK u32 s_te0[256];                                       \
+  LOCAL_VK u32 s_te1[256];                                       \
+  LOCAL_VK u32 s_te2[256];                                       \
+  LOCAL_VK u32 s_te3[256];                                       \
+  LOCAL_VK u32 s_te4[256];                                       \
+  for (u32 i = lid; i < 256; i += lsz)                           \
+  {                                                              \
+    s_te0[i] = te0[i];                                           \
+    s_te1[i] = te1[i];                                           \
+    s_te2[i] = te2[i];                                           \
+    s_te3[i] = te3[i];                                           \
+    s_te4[i] = te4[i];                                           \
+  }                                                              \
+  SYNC_THREADS ();
+#else
+#define WPA_AES_SHARED                                           \
+  CONSTANT_AS u32a *s_te0 = te0;                                 \
+  CONSTANT_AS u32a *s_te1 = te1;                                 \
+  CONSTANT_AS u32a *s_te2 = te2;                                 \
+  CONSTANT_AS u32a *s_te3 = te3;                                 \
+  CONSTANT_AS u32a *s_te4 = te4;
+#endif
+
+// --- PBKDF2-HMAC-SHA1 init/loop/comp ---
+
 KERNEL_FQ KERNEL_FA void m22000_init (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wpa_t))
 {
-  /**
-   * base
-   */
-
   const u64 gid = get_global_id (0);
 
   if (gid >= GID_CNT) return;
@@ -189,8 +810,6 @@ KERNEL_FQ KERNEL_FA void m22000_init (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wp
   u32 w1[4];
   u32 w2[4];
   u32 w3[4];
-
-  // w0[0] = 1
 
   sha1_hmac_ctx_t sha1_hmac_ctx1 = sha1_hmac_ctx0;
 
@@ -226,8 +845,6 @@ KERNEL_FQ KERNEL_FA void m22000_init (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wp
   tmps[gid].out[2] = sha1_hmac_ctx1.opad.h[2];
   tmps[gid].out[3] = sha1_hmac_ctx1.opad.h[3];
   tmps[gid].out[4] = sha1_hmac_ctx1.opad.h[4];
-
-  // w0[0] = 2
 
   sha1_hmac_ctx_t sha1_hmac_ctx2 = sha1_hmac_ctx0;
 
@@ -289,8 +906,6 @@ KERNEL_FQ KERNEL_FA void m22000_loop (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wp
   u32x dgst[5];
   u32x out[5];
 
-  // w0[0] = 1
-
   dgst[0] = packv (tmps, dgst, gid, 0);
   dgst[1] = packv (tmps, dgst, gid, 1);
   dgst[2] = packv (tmps, dgst, gid, 2);
@@ -347,8 +962,6 @@ KERNEL_FQ KERNEL_FA void m22000_loop (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wp
   unpackv (tmps, out, gid, 2, out[2]);
   unpackv (tmps, out, gid, 3, out[3]);
   unpackv (tmps, out, gid, 4, out[4]);
-
-  // w0[0] = 2
 
   dgst[0] = packv (tmps, dgst, gid, 5);
   dgst[1] = packv (tmps, dgst, gid, 6);
@@ -413,730 +1026,83 @@ KERNEL_FQ KERNEL_FA void m22000_comp (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wp
   // not in use here, special case...
 }
 
+// --- Aux kernels ---
+
+// aux1: type 02 keyver 1 (WPA1-PSK-EAPOL, HMAC-MD5 MIC)
 KERNEL_FQ KERNEL_FA void m22000_aux1 (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wpa_t))
 {
-  const u64 gid = get_global_id (0);
+  WPA_AUX_PROLOGUE
 
-  if (gid >= GID_CNT) return;
+  int matched = 0;
 
-  u32 out0[4];
-  u32 out1[4];
-
-  out0[0] = tmps[gid].out[0];
-  out0[1] = tmps[gid].out[1];
-  out0[2] = tmps[gid].out[2];
-  out0[3] = tmps[gid].out[3];
-  out1[0] = tmps[gid].out[4];
-  out1[1] = tmps[gid].out[5];
-  out1[2] = tmps[gid].out[6];
-  out1[3] = tmps[gid].out[7];
-
-  const u32 digest_pos = LOOP_POS;
-
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + digest_pos;
-
-  GLOBAL_AS const wpa_t *wpa = &esalt_bufs[digest_cur];
-
-  // this can occur on -a 9 because we are ignoring module_deep_comp_kernel()
-  if ((wpa->type != 2) && (wpa->keyver != 1)) return;
-
-  u32 pke[32];
-
-  pke[ 0] = wpa->pke[ 0];
-  pke[ 1] = wpa->pke[ 1];
-  pke[ 2] = wpa->pke[ 2];
-  pke[ 3] = wpa->pke[ 3];
-  pke[ 4] = wpa->pke[ 4];
-  pke[ 5] = wpa->pke[ 5];
-  pke[ 6] = wpa->pke[ 6];
-  pke[ 7] = wpa->pke[ 7];
-  pke[ 8] = wpa->pke[ 8];
-  pke[ 9] = wpa->pke[ 9];
-  pke[10] = wpa->pke[10];
-  pke[11] = wpa->pke[11];
-  pke[12] = wpa->pke[12];
-  pke[13] = wpa->pke[13];
-  pke[14] = wpa->pke[14];
-  pke[15] = wpa->pke[15];
-  pke[16] = wpa->pke[16];
-  pke[17] = wpa->pke[17];
-  pke[18] = wpa->pke[18];
-  pke[19] = wpa->pke[19];
-  pke[20] = wpa->pke[20];
-  pke[21] = wpa->pke[21];
-  pke[22] = wpa->pke[22];
-  pke[23] = wpa->pke[23];
-  pke[24] = wpa->pke[24];
-  pke[25] = wpa->pke[25];
-  pke[26] = wpa->pke[26];
-  pke[27] = wpa->pke[27];
-  pke[28] = wpa->pke[28];
-  pke[29] = wpa->pke[29];
-  pke[30] = wpa->pke[30];
-  pke[31] = wpa->pke[31];
-
-  u32 z[4];
-
-  z[0] = 0;
-  z[1] = 0;
-  z[2] = 0;
-  z[3] = 0;
-
-  u32 to;
-
-  u32 m0;
-  u32 m1;
-
-  if (wpa->nonce_compare < 0)
+  if ((wpa->type == 2) && (wpa->keyver == 1))
   {
-    m0 = pke[15] & ~0x000000ff;
-    m1 = pke[16] & ~0xffffff00;
-
-    to = pke[15] << 24
-       | pke[16] >>  8;
-  }
-  else
-  {
-    m0 = pke[23] & ~0x000000ff;
-    m1 = pke[24] & ~0xffffff00;
-
-    to = pke[23] << 24
-       | pke[24] >>  8;
+    matched = wpa_check_eapol_md5 (pmk, wpa);
   }
 
-  u32 bo_loops = wpa->detected_le + wpa->detected_be;
-
-  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
-
-  const u32 nonce_error_corrections = wpa->nonce_error_corrections;
-
-  for (u32 nonce_error_correction = 0; nonce_error_correction <= nonce_error_corrections; nonce_error_correction++)
-  {
-    for (u32 bo_pos = 0; bo_pos < bo_loops; bo_pos++)
-    {
-      u32 t = to;
-
-      if (bo_loops == 1)
-      {
-        if (wpa->detected_le == 1)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (wpa->detected_be == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-      else
-      {
-        if (bo_pos == 0)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (bo_pos == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-
-      if (wpa->nonce_compare < 0)
-      {
-        pke[15] = m0 | (t >> 24);
-        pke[16] = m1 | (t <<  8);
-      }
-      else
-      {
-        pke[23] = m0 | (t >> 24);
-        pke[24] = m1 | (t <<  8);
-      }
-
-      sha1_hmac_ctx_t ctx1;
-
-      sha1_hmac_init_64 (&ctx1, out0, out1, z, z);
-
-      sha1_hmac_update (&ctx1, pke, 100);
-
-      sha1_hmac_final (&ctx1);
-
-      ctx1.opad.h[0] = hc_swap32_S (ctx1.opad.h[0]);
-      ctx1.opad.h[1] = hc_swap32_S (ctx1.opad.h[1]);
-      ctx1.opad.h[2] = hc_swap32_S (ctx1.opad.h[2]);
-      ctx1.opad.h[3] = hc_swap32_S (ctx1.opad.h[3]);
-
-      md5_hmac_ctx_t ctx2;
-
-      md5_hmac_init_64 (&ctx2, ctx1.opad.h, z, z, z);
-
-      md5_hmac_update_global (&ctx2, wpa->eapol, wpa->eapol_len);
-
-      md5_hmac_final (&ctx2);
-
-      ctx2.opad.h[0] = hc_swap32_S (ctx2.opad.h[0]);
-      ctx2.opad.h[1] = hc_swap32_S (ctx2.opad.h[1]);
-      ctx2.opad.h[2] = hc_swap32_S (ctx2.opad.h[2]);
-      ctx2.opad.h[3] = hc_swap32_S (ctx2.opad.h[3]);
-
-      /**
-       * final compare
-       */
-
-      if ((ctx2.opad.h[0] == wpa->keymic[0])
-       && (ctx2.opad.h[1] == wpa->keymic[1])
-       && (ctx2.opad.h[2] == wpa->keymic[2])
-       && (ctx2.opad.h[3] == wpa->keymic[3]))
-      {
-        if (hc_atomic_inc (&hashes_shown[digest_cur]) == 0)
-        {
-          mark_hash (plains_buf, d_return_buf, SALT_POS_HOST, DIGESTS_CNT, digest_pos, digest_cur, gid, 0, 0, 0);
-        }
-      }
-    }
-  }
+  WPA_MARK_IF (matched)
 }
 
+// aux2: type 02 keyver 2 (WPA2-PSK-EAPOL, HMAC-SHA1 MIC)
 KERNEL_FQ KERNEL_FA void m22000_aux2 (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wpa_t))
 {
-  const u64 gid = get_global_id (0);
+  WPA_AUX_PROLOGUE
 
-  if (gid >= GID_CNT) return;
+  int matched = 0;
 
-  u32 out0[4];
-  u32 out1[4];
-
-  out0[0] = tmps[gid].out[0];
-  out0[1] = tmps[gid].out[1];
-  out0[2] = tmps[gid].out[2];
-  out0[3] = tmps[gid].out[3];
-  out1[0] = tmps[gid].out[4];
-  out1[1] = tmps[gid].out[5];
-  out1[2] = tmps[gid].out[6];
-  out1[3] = tmps[gid].out[7];
-
-  const u32 digest_pos = LOOP_POS;
-
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + digest_pos;
-
-  GLOBAL_AS const wpa_t *wpa = &esalt_bufs[digest_cur];
-
-  // this can occur on -a 9 because we are ignoring module_deep_comp_kernel()
-  if ((wpa->type != 2) && (wpa->keyver != 2)) return;
-
-  u32 pke[32];
-
-  pke[ 0] = wpa->pke[ 0];
-  pke[ 1] = wpa->pke[ 1];
-  pke[ 2] = wpa->pke[ 2];
-  pke[ 3] = wpa->pke[ 3];
-  pke[ 4] = wpa->pke[ 4];
-  pke[ 5] = wpa->pke[ 5];
-  pke[ 6] = wpa->pke[ 6];
-  pke[ 7] = wpa->pke[ 7];
-  pke[ 8] = wpa->pke[ 8];
-  pke[ 9] = wpa->pke[ 9];
-  pke[10] = wpa->pke[10];
-  pke[11] = wpa->pke[11];
-  pke[12] = wpa->pke[12];
-  pke[13] = wpa->pke[13];
-  pke[14] = wpa->pke[14];
-  pke[15] = wpa->pke[15];
-  pke[16] = wpa->pke[16];
-  pke[17] = wpa->pke[17];
-  pke[18] = wpa->pke[18];
-  pke[19] = wpa->pke[19];
-  pke[20] = wpa->pke[20];
-  pke[21] = wpa->pke[21];
-  pke[22] = wpa->pke[22];
-  pke[23] = wpa->pke[23];
-  pke[24] = wpa->pke[24];
-  pke[25] = wpa->pke[25];
-  pke[26] = wpa->pke[26];
-  pke[27] = wpa->pke[27];
-  pke[28] = wpa->pke[28];
-  pke[29] = wpa->pke[29];
-  pke[30] = wpa->pke[30];
-  pke[31] = wpa->pke[31];
-
-  u32 z[4];
-
-  z[0] = 0;
-  z[1] = 0;
-  z[2] = 0;
-  z[3] = 0;
-
-  u32 to;
-
-  u32 m0;
-  u32 m1;
-
-  if (wpa->nonce_compare < 0)
+  if ((wpa->type == 2) && (wpa->keyver == 2))
   {
-    m0 = pke[15] & ~0x000000ff;
-    m1 = pke[16] & ~0xffffff00;
-
-    to = pke[15] << 24
-       | pke[16] >>  8;
-  }
-  else
-  {
-    m0 = pke[23] & ~0x000000ff;
-    m1 = pke[24] & ~0xffffff00;
-
-    to = pke[23] << 24
-       | pke[24] >>  8;
+    matched = wpa_check_eapol_sha1 (pmk, wpa);
   }
 
-  u32 bo_loops = wpa->detected_le + wpa->detected_be;
-
-  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
-
-  const u32 nonce_error_corrections = wpa->nonce_error_corrections;
-
-  for (u32 nonce_error_correction = 0; nonce_error_correction <= nonce_error_corrections; nonce_error_correction++)
-  {
-    for (u32 bo_pos = 0; bo_pos < bo_loops; bo_pos++)
-    {
-      u32 t = to;
-
-      if (bo_loops == 1)
-      {
-        if (wpa->detected_le == 1)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (wpa->detected_be == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-      else
-      {
-        if (bo_pos == 0)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (bo_pos == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-
-      if (wpa->nonce_compare < 0)
-      {
-        pke[15] = m0 | (t >> 24);
-        pke[16] = m1 | (t <<  8);
-      }
-      else
-      {
-        pke[23] = m0 | (t >> 24);
-        pke[24] = m1 | (t <<  8);
-      }
-
-      sha1_hmac_ctx_t ctx1;
-
-      sha1_hmac_init_64 (&ctx1, out0, out1, z, z);
-
-      sha1_hmac_update (&ctx1, pke, 100);
-
-      sha1_hmac_final (&ctx1);
-
-      sha1_hmac_ctx_t ctx2;
-
-      sha1_hmac_init_64 (&ctx2, ctx1.opad.h, z, z, z);
-
-      sha1_hmac_update_global (&ctx2, wpa->eapol, wpa->eapol_len);
-
-      sha1_hmac_final (&ctx2);
-
-      /**
-       * final compare
-       */
-
-      if ((ctx2.opad.h[0] == wpa->keymic[0])
-       && (ctx2.opad.h[1] == wpa->keymic[1])
-       && (ctx2.opad.h[2] == wpa->keymic[2])
-       && (ctx2.opad.h[3] == wpa->keymic[3]))
-      {
-        if (hc_atomic_inc (&hashes_shown[digest_cur]) == 0)
-        {
-          mark_hash (plains_buf, d_return_buf, SALT_POS_HOST, DIGESTS_CNT, digest_pos, digest_cur, gid, 0, 0, 0);
-        }
-      }
-    }
-  }
+  WPA_MARK_IF (matched)
 }
 
+// aux3: type 02 keyver 3 / type 04 / type 06 (AES-128-CMAC MIC family)
 KERNEL_FQ KERNEL_FA void m22000_aux3 (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wpa_t))
 {
-  /**
-   * aes shared
-   */
+  WPA_AES_SHARED
+  WPA_AUX_PROLOGUE
 
-  #ifdef REAL_SHM
+  int matched = 0;
 
-  const u64 lid = get_local_id (0);
-  const u64 lsz = get_local_size (0);
-
-  LOCAL_VK u32 s_te0[256];
-  LOCAL_VK u32 s_te1[256];
-  LOCAL_VK u32 s_te2[256];
-  LOCAL_VK u32 s_te3[256];
-  LOCAL_VK u32 s_te4[256];
-
-  for (u32 i = lid; i < 256; i += lsz)
+  switch (wpa->type)
   {
-    s_te0[i] = te0[i];
-    s_te1[i] = te1[i];
-    s_te2[i] = te2[i];
-    s_te3[i] = te3[i];
-    s_te4[i] = te4[i];
+    #ifdef ENABLE_TYPE_02
+    case 2:
+      if (wpa->keyver == 3) matched = wpa_check_eapol_cmac256 (pmk, wpa, s_te0, s_te1, s_te2, s_te3, s_te4);
+      break;
+    #endif
+    #ifdef ENABLE_TYPE_04
+    case 4: matched = wpa_check_eapol_cmac256    (pmk, wpa, s_te0, s_te1, s_te2, s_te3, s_te4); break;
+    #endif
+    #ifdef ENABLE_TYPE_06
+    case 6: matched = wpa_check_ft_eapol_cmac256 (pmk, wpa, s_te0, s_te1, s_te2, s_te3, s_te4); break;
+    #endif
   }
 
-  SYNC_THREADS ();
-
-  #else
-
-  CONSTANT_AS u32a *s_te0 = te0;
-  CONSTANT_AS u32a *s_te1 = te1;
-  CONSTANT_AS u32a *s_te2 = te2;
-  CONSTANT_AS u32a *s_te3 = te3;
-  CONSTANT_AS u32a *s_te4 = te4;
-
-  #endif
-
-  const u64 gid = get_global_id (0);
-
-  if (gid >= GID_CNT) return;
-
-  u32 out0[4];
-  u32 out1[4];
-
-  out0[0] = tmps[gid].out[0];
-  out0[1] = tmps[gid].out[1];
-  out0[2] = tmps[gid].out[2];
-  out0[3] = tmps[gid].out[3];
-  out1[0] = tmps[gid].out[4];
-  out1[1] = tmps[gid].out[5];
-  out1[2] = tmps[gid].out[6];
-  out1[3] = tmps[gid].out[7];
-
-  const u32 digest_pos = LOOP_POS;
-
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + digest_pos;
-
-  GLOBAL_AS const wpa_t *wpa = &esalt_bufs[digest_cur];
-
-  // this can occur on -a 9 because we are ignoring module_deep_comp_kernel()
-  if ((wpa->type != 2) && (wpa->keyver != 3)) return;
-
-  u32 pke[32];
-
-  pke[ 0] = wpa->pke[ 0];
-  pke[ 1] = wpa->pke[ 1];
-  pke[ 2] = wpa->pke[ 2];
-  pke[ 3] = wpa->pke[ 3];
-  pke[ 4] = wpa->pke[ 4];
-  pke[ 5] = wpa->pke[ 5];
-  pke[ 6] = wpa->pke[ 6];
-  pke[ 7] = wpa->pke[ 7];
-  pke[ 8] = wpa->pke[ 8];
-  pke[ 9] = wpa->pke[ 9];
-  pke[10] = wpa->pke[10];
-  pke[11] = wpa->pke[11];
-  pke[12] = wpa->pke[12];
-  pke[13] = wpa->pke[13];
-  pke[14] = wpa->pke[14];
-  pke[15] = wpa->pke[15];
-  pke[16] = wpa->pke[16];
-  pke[17] = wpa->pke[17];
-  pke[18] = wpa->pke[18];
-  pke[19] = wpa->pke[19];
-  pke[20] = wpa->pke[20];
-  pke[21] = wpa->pke[21];
-  pke[22] = wpa->pke[22];
-  pke[23] = wpa->pke[23];
-  pke[24] = wpa->pke[24];
-  pke[25] = wpa->pke[25];
-  pke[26] = wpa->pke[26];
-  pke[27] = wpa->pke[27];
-  pke[28] = wpa->pke[28];
-  pke[29] = wpa->pke[29];
-  pke[30] = wpa->pke[30];
-  pke[31] = wpa->pke[31];
-
-  u32 z[4];
-
-  z[0] = 0;
-  z[1] = 0;
-  z[2] = 0;
-  z[3] = 0;
-
-  u32 to;
-
-  u32 m0;
-  u32 m1;
-
-  if (wpa->nonce_compare < 0)
-  {
-    m0 = pke[15] & ~0x000000ff;
-    m1 = pke[16] & ~0xffffff00;
-
-    to = pke[15] << 24
-       | pke[16] >>  8;
-  }
-  else
-  {
-    m0 = pke[23] & ~0x000000ff;
-    m1 = pke[24] & ~0xffffff00;
-
-    to = pke[23] << 24
-       | pke[24] >>  8;
-  }
-
-  u32 bo_loops = wpa->detected_le + wpa->detected_be;
-
-  bo_loops = (bo_loops == 0) ? 2 : bo_loops;
-
-  const u32 nonce_error_corrections = wpa->nonce_error_corrections;
-
-  for (u32 nonce_error_correction = 0; nonce_error_correction <= nonce_error_corrections; nonce_error_correction++)
-  {
-    for (u32 bo_pos = 0; bo_pos < bo_loops; bo_pos++)
-    {
-      u32 t = to;
-
-      if (bo_loops == 1)
-      {
-        if (wpa->detected_le == 1)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (wpa->detected_be == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-      else
-      {
-        if (bo_pos == 0)
-        {
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-        }
-        else if (bo_pos == 1)
-        {
-          t = hc_swap32_S (t);
-
-          t -= nonce_error_corrections / 2;
-          t += nonce_error_correction;
-
-          t = hc_swap32_S (t);
-        }
-      }
-
-      if (wpa->nonce_compare < 0)
-      {
-        pke[15] = m0 | (t >> 24);
-        pke[16] = m1 | (t <<  8);
-      }
-      else
-      {
-        pke[23] = m0 | (t >> 24);
-        pke[24] = m1 | (t <<  8);
-      }
-
-      sha256_hmac_ctx_t ctx1;
-
-      sha256_hmac_init_64 (&ctx1, out0, out1, z, z);
-
-      sha256_hmac_update (&ctx1, pke, 102);
-
-      sha256_hmac_final (&ctx1);
-
-      // AES CMAC
-
-      u32 ks[44];
-
-      AES128_set_encrypt_key (ks, ctx1.opad.h, s_te0, s_te1, s_te2, s_te3);
-
-      u32 m[4];
-
-      m[0] = 0;
-      m[1] = 0;
-      m[2] = 0;
-      m[3] = 0;
-
-      u32 iv[4];
-
-      iv[0] = 0;
-      iv[1] = 0;
-      iv[2] = 0;
-      iv[3] = 0;
-
-      int eapol_left;
-      int eapol_idx;
-
-      for (eapol_left = wpa->eapol_len, eapol_idx = 0; eapol_left > 16; eapol_left -= 16, eapol_idx += 4)
-      {
-        m[0] = wpa->eapol[eapol_idx + 0] ^ iv[0];
-        m[1] = wpa->eapol[eapol_idx + 1] ^ iv[1];
-        m[2] = wpa->eapol[eapol_idx + 2] ^ iv[2];
-        m[3] = wpa->eapol[eapol_idx + 3] ^ iv[3];
-
-        aes128_encrypt (ks, m, iv, s_te0, s_te1, s_te2, s_te3, s_te4);
-      }
-
-      m[0] = wpa->eapol[eapol_idx + 0];
-      m[1] = wpa->eapol[eapol_idx + 1];
-      m[2] = wpa->eapol[eapol_idx + 2];
-      m[3] = wpa->eapol[eapol_idx + 3];
-
-      u32 k[4];
-
-      k[0] = 0;
-      k[1] = 0;
-      k[2] = 0;
-      k[3] = 0;
-
-      aes128_encrypt (ks, k, k, s_te0, s_te1, s_te2, s_te3, s_te4);
-
-      make_kn (k);
-
-      if (eapol_left < 16)
-      {
-        make_kn (k);
-      }
-
-      m[0] ^= k[0];
-      m[1] ^= k[1];
-      m[2] ^= k[2];
-      m[3] ^= k[3];
-
-      m[0] ^= iv[0];
-      m[1] ^= iv[1];
-      m[2] ^= iv[2];
-      m[3] ^= iv[3];
-
-      m[0] = hc_swap32_S (m[0]);
-      m[1] = hc_swap32_S (m[1]);
-      m[2] = hc_swap32_S (m[2]);
-      m[3] = hc_swap32_S (m[3]);
-
-      u32 keymic[4];
-
-      AES128_encrypt (ks, m, keymic, s_te0, s_te1, s_te2, s_te3, s_te4);
-
-      /**
-       * final compare
-       */
-
-      if ((keymic[0] == wpa->keymic[0])
-       && (keymic[1] == wpa->keymic[1])
-       && (keymic[2] == wpa->keymic[2])
-       && (keymic[3] == wpa->keymic[3]))
-      {
-        if (hc_atomic_inc (&hashes_shown[digest_cur]) == 0)
-        {
-          mark_hash (plains_buf, d_return_buf, SALT_POS_HOST, DIGESTS_CNT, digest_pos, digest_cur, gid, 0, 0, 0);
-        }
-      }
-    }
-  }
+  WPA_MARK_IF (matched)
 }
 
+// aux4: type 01 / type 03 / type 05 (all PMKID types)
 KERNEL_FQ KERNEL_FA void m22000_aux4 (KERN_ATTR_TMPS_ESALT (wpa_pbkdf2_tmp_t, wpa_t))
 {
-  const u64 gid = get_global_id (0);
+  WPA_AUX_PROLOGUE
 
-  if (gid >= GID_CNT) return;
+  int matched = 0;
 
-  u32 w[16];
-
-  w[ 0] = tmps[gid].out[0];
-  w[ 1] = tmps[gid].out[1];
-  w[ 2] = tmps[gid].out[2];
-  w[ 3] = tmps[gid].out[3];
-  w[ 4] = tmps[gid].out[4];
-  w[ 5] = tmps[gid].out[5];
-  w[ 6] = tmps[gid].out[6];
-  w[ 7] = tmps[gid].out[7];
-  w[ 8] = 0;
-  w[ 9] = 0;
-  w[10] = 0;
-  w[11] = 0;
-  w[12] = 0;
-  w[13] = 0;
-  w[14] = 0;
-  w[15] = 0;
-
-  const u32 digest_pos = LOOP_POS;
-
-  const u32 digest_cur = DIGESTS_OFFSET_HOST + digest_pos;
-
-  GLOBAL_AS const wpa_t *wpa = &esalt_bufs[digest_cur];
-
-  // this can occur on -a 9 because we are ignoring module_deep_comp_kernel()
-  if (wpa->type != 1) return;
-
-  sha1_hmac_ctx_t sha1_hmac_ctx;
-
-  sha1_hmac_init (&sha1_hmac_ctx, w, 32);
-
-  sha1_hmac_update_global_swap (&sha1_hmac_ctx, wpa->pmkid_data, 20);
-
-  sha1_hmac_final (&sha1_hmac_ctx);
-
-  const u32 r0 = sha1_hmac_ctx.opad.h[0];
-  const u32 r1 = sha1_hmac_ctx.opad.h[1];
-  const u32 r2 = sha1_hmac_ctx.opad.h[2];
-  const u32 r3 = sha1_hmac_ctx.opad.h[3];
-
-  #ifdef KERNEL_STATIC
-
-  #define il_pos 0
-  #include COMPARE_M
-
-  #else
-
-  if ((hc_swap32_S (r0) == wpa->pmkid[0])
-   && (hc_swap32_S (r1) == wpa->pmkid[1])
-   && (hc_swap32_S (r2) == wpa->pmkid[2])
-   && (hc_swap32_S (r3) == wpa->pmkid[3]))
+  switch (wpa->type)
   {
-    if (hc_atomic_inc (&hashes_shown[digest_cur]) == 0)
-    {
-      mark_hash (plains_buf, d_return_buf, SALT_POS_HOST, DIGESTS_CNT, digest_pos, digest_cur, gid, 0, 0, 0);
-    }
+    #ifdef ENABLE_TYPE_01
+    case 1: matched = wpa_check_pmkid_sha1      (pmk, wpa); break;
+    #endif
+    #ifdef ENABLE_TYPE_03
+    case 3: matched = wpa_check_pmkid_sha256    (pmk, wpa); break;
+    #endif
+    #ifdef ENABLE_TYPE_05
+    case 5: matched = wpa_check_ft_pmkid_sha256 (pmk, wpa); break;
+    #endif
   }
 
-  #endif
+  WPA_MARK_IF (matched)
 }
