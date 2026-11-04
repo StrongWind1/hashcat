@@ -111,11 +111,8 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
                 | TOKEN_ATTR_VERIFY_SIGNATURE;
 
   /**
-   * Hashcat
-   * format 1: $krb5asrep$18$user$realm$checksum$edata2
-   *
-   * JtR
-   * format 2: $krb5asrep$18$salt$edata2$checksum
+   * format 1: $krb5asrep$17$user$realm$checksum$edata2
+   * format 2: $krb5asrep$17$salt$edata2$checksum    (JtR: checksum after encrypted)
    */
 
   if (line_len < (int) strlen (SIGNATURE_KRB5ASREP)) return (PARSER_SALT_LENGTH);
@@ -129,18 +126,18 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
    */
 
   // the checksum is 24 characters plus its '$', so the line must be at least
-  // 25 bytes before that offset can be computed -- without this the index
+  // 25 bytes before that offset can be computed - without this the index
   // below goes negative and reads in front of the buffer
   if (line_len < 25) return (PARSER_SALT_LENGTH);
 
   if (line_buf[line_len - 25] == '$')
   {
-    // JtR format
+    // format 2: $krb5asrep$17$salt$edata2$checksum  (JtR: checksum after encrypted)
     krb5asrep->format = 2;
   }
   else
   {
-    // Hashcat format
+    // format 1: $krb5asrep$17$user$realm$checksum$edata2
     krb5asrep->format = 1;
   }
 
@@ -240,7 +237,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     memcpy (krb5asrep->account_info, salt_pos, account_info_len);
 
-    /**
+  /**
      * JtR format only has the final salt/account_info value (combination of
      * user and realm), rather than separate "user" and "realm" values. Since
      * user and realm won't be used for the JtR format, their values won't

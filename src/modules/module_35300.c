@@ -119,11 +119,11 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   token.attr[0]           = TOKEN_ATTR_FIXED_LENGTH
                           | TOKEN_ATTR_VERIFY_SIGNATURE;
 
-    /**
-   * format 1: $krb5tgs$23$*user$realm$spn*$checksum$encrypted  (Rubeus/Impacket)
-   * format 2: $krb5tgs$23$checksum$encrypted                   (bare, no metadata)
-   * format 3: $krb5tgs$spn:checksum$encrypted                  (JtR colon format)
-   * format 4: $krb5tgs$23$user$realm$checksum$encrypted
+  /**
+   * format 1: $krb5tgs$23$*user$realm$spn*$checksum$edata2  (Rubeus/Impacket)
+   * format 2: $krb5tgs$23$checksum$edata2                   (bare, no metadata)
+   * format 3: $krb5tgs$spn:checksum$edata2                  (JtR colon format)
+   * format 4: $krb5tgs$23$user$realm$checksum$edata2
    */
 
   if (line_len < (int) strlen (SIGNATURE_KRB5TGS)) return PARSER_SALT_LENGTH;
@@ -144,7 +144,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     if ((line_len > (int) after_etype) && (line_buf[after_etype] == '*'))
     {
-      // format 1: $krb5tgs$23$*user$realm$spn*$checksum$encrypted  (Rubeus/Impacket)
+      // format 1: $krb5tgs$23$*user$realm$spn*$checksum$edata2  (Rubeus/Impacket)
       const char *acct_start = line_buf + after_etype;        // at leading '*'
 
       // hc_strchr_next, not strchr: the field ends where the line ends, not at a NUL the caller is
@@ -195,7 +195,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
       if (dollar_cnt >= 3)
       {
-        // format 4: $krb5tgs$23$user$realm$checksum$encrypted
+        // format 4: $krb5tgs$23$user$realm$checksum$edata2
         token.token_cnt = 6;
 
         token.sep[1]  = '$';
@@ -225,7 +225,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
       }
       else
       {
-        // format 2: $krb5tgs$23$checksum$encrypted  (bare, no metadata)
+        // format 2: $krb5tgs$23$checksum$edata2  (bare, no metadata)
         token.sep[1]  = '$';
         token.len[1]  = 2;
         token.attr[1] = TOKEN_ATTR_FIXED_LENGTH | TOKEN_ATTR_VERIFY_DIGIT;
@@ -245,7 +245,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   }
   else
   {
-    // format 3: $krb5tgs$spn:checksum$encrypted  (JtR colon format)
+    // format 3: $krb5tgs$spn:checksum$edata2  (JtR colon format)
     token.sep[1]     = ':';
     token.len_min[1] = 0;
     token.len_max[1] = (int) sizeof (krb5tgs->account_info) - 1;

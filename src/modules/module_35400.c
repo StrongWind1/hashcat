@@ -123,10 +123,10 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   token.attr[0] = TOKEN_ATTR_FIXED_LENGTH
                 | TOKEN_ATTR_VERIFY_SIGNATURE;
 
-    /**
-   * format 1: $krb5asrep$23$user@realm:checksum$encrypted  (Impacket GetNPUsers)
-   * format 2: $krb5asrep$user@realm:checksum$encrypted     (no etype prefix)
-   * format 3: $krb5asrep$23$user$realm$checksum$encrypted
+  /**
+   * format 1: $krb5asrep$23$user@realm:checksum$edata2  (Impacket GetNPUsers)
+   * format 2: $krb5asrep$user@realm:checksum$edata2     (no etype prefix)
+   * format 3: $krb5asrep$23$user$realm$checksum$edata2
    */
 
   if (line_len < (int) strlen (SIGNATURE_KRB5ASREP)) return (PARSER_SALT_LENGTH);
@@ -140,13 +140,13 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   if ((line_len > (token.len[0] + 2))
    && (line_buf[token.len[0]] == '2') && (line_buf[token.len[0] + 1] == '3') && (line_buf[token.len[0] + 2] == '$'))
   {
-    // format 1: $krb5asrep$23$user@realm:checksum$encrypted  (Impacket GetNPUsers)
+    // format 1: $krb5asrep$23$user@realm:checksum$edata2  (Impacket GetNPUsers)
     krb5asrep->format = 1;
     parse_off += 3;
   }
   else
   {
-    // format 2: $krb5asrep$user@realm:checksum$encrypted  (no etype prefix)
+    // format 2: $krb5asrep$user@realm:checksum$edata2  (no etype prefix)
     krb5asrep->format = 2;
   }
 
@@ -160,7 +160,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   if (account_info_stop == NULL && krb5asrep->format == 1)
   {
-    // format 3: $krb5asrep$23$user$realm$checksum$encrypted
+    // format 3: $krb5asrep$23$user$realm$checksum$edata2
     krb5asrep->format = 3;
 
     token.token_cnt = 6;

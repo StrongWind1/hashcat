@@ -110,11 +110,11 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   token.attr[0] = TOKEN_ATTR_FIXED_LENGTH
                 | TOKEN_ATTR_VERIFY_SIGNATURE;
 
-    /**
-   * format 1: $krb5tgs$23$*user$realm$spn*$checksum$encrypted  (Rubeus/Impacket)
-   * format 2: $krb5tgs$23$checksum$encrypted                   (bare, no metadata)
-   * format 3: $krb5tgs$spn:checksum$encrypted                  (JtR colon format)
-   * format 4: $krb5tgs$23$user$realm$checksum$encrypted
+  /**
+   * format 1: $krb5tgs$23$*user$realm$spn*$checksum$edata2  (Rubeus/Impacket)
+   * format 2: $krb5tgs$23$checksum$edata2                   (bare, no metadata)
+   * format 3: $krb5tgs$spn:checksum$edata2                  (JtR colon format)
+   * format 4: $krb5tgs$23$user$realm$checksum$edata2
    */
 
   if (line_len < (int) strlen (SIGNATURE_KRB5TGS)) return (PARSER_SALT_LENGTH);
@@ -132,7 +132,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   {
     if ((line_len > (token.len[0] + 3)) && (line_buf[token.len[0] + 3] == '*'))
     {
-      // format 1: $krb5tgs$23$*user$realm$spn*$checksum$encrypted  (Rubeus/Impacket)
+      // format 1: $krb5tgs$23$*user$realm$spn*$checksum$edata2  (Rubeus/Impacket)
 
       const char *account_info_start = line_buf + 12; // we want the * char included
 
@@ -196,7 +196,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
       if (dollar_cnt >= 3)
       {
-        // format 4: $krb5tgs$23$user$realm$checksum$encrypted
+        // format 4: $krb5tgs$23$user$realm$checksum$edata2
 
         token.token_cnt = 6;
 
@@ -240,7 +240,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
       }
       else
       {
-        // format 2: $krb5tgs$23$checksum$encrypted  (bare, no metadata)
+        // format 2: $krb5tgs$23$checksum$edata2  (bare, no metadata)
 
         // etype
 
@@ -270,7 +270,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   }
   else
   {
-    // format 3: $krb5tgs$spn:checksum$encrypted  (JtR colon format)
+    // format 3: $krb5tgs$spn:checksum$edata2  (JtR colon format)
 
     token.sep[1]     = ':';
     token.len_min[1] = 0;

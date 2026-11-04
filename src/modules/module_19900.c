@@ -100,7 +100,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
    * format 1: $krb5pa$18$user$realm$enc_timestamp+checksum           (single field)
    * format 2: $krb5pa$18$user$realm$$enc_timestamp+checksum          (empty salt)
    * format 3: $krb5pa$18$user$realm$salt$enc_timestamp+checksum      (explicit salt)
-   * format 4: $krb5pa$18$user$realm$checksum$encrypted               (split fields)
+   * format 4: $krb5pa$18$user$realm$checksum$enc_timestamp               (split fields)
    */
 
   int sep_cnt = 0;
@@ -158,7 +158,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   {
     if (sep_cnt == 6)
     {
-      // format 4: $krb5pa$18$user$realm$checksum(24)$encrypted(80-88)
+      // format 4: $krb5pa$18$user$realm$checksum(24)$enc_timestamp(80-88)
       krb5pa->format = 4;
 
       token.token_cnt  = 5;

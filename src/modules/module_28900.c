@@ -95,11 +95,11 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
                 | TOKEN_ATTR_VERIFY_SIGNATURE;
 
   /**
-   * $krb5db$18$user$realm$hash
-   * $krb5db$18$user$realm$*spn*$hash
+   * format 1: $krb5db$18$user$realm$key
+   * format 2: $krb5db$18$user$realm$*spn*$key  (with optional SPN)
    */
 
-  // assume no signature found
+  // no signature found - reject
   if (line_len < 12) return (PARSER_SALT_LENGTH);
 
   // hc_strchr_next, not strchr: the field ends where the line ends. strchr () ended it at the
@@ -110,7 +110,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   int is_spn_provided = 0;
 
-  // assume $krb5db$17$user$realm$checksum$edata2
+  // format 1: $krb5db$18$user$realm$key
   if (spn_info_start == NULL)
   {
     token.token_cnt  = 4;
@@ -131,7 +131,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
                      | TOKEN_ATTR_VERIFY_HEX;
 
   }
-  // assume $krb5db$18$user$realm$*spn*$hash
+  // format 2: $krb5db$18$user$realm$*spn*$key  (with SPN field)
   else
   {
     // bounded for the same reason as the search above: the field ends where the line ends
@@ -142,7 +142,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     if (spn_info_stop == NULL) return (PARSER_SEPARATOR_UNMATCHED);
 
-    spn_info_stop++; // we want the * $char included
+    spn_info_stop++; // we want the * char included
     spn_info_stop++; // we want the $ char included
 
     const int spn_info_len = spn_info_stop - spn_info_start;
