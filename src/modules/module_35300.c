@@ -10,6 +10,7 @@
 #include "convert.h"
 #include "shared.h"
 #include "parser.h"
+#include "memory.h"
 
 static const u32   ATTACK_EXEC    = ATTACK_EXEC_OUTSIDE_KERNEL;
 static const u32   DGST_POS0      = 0;
@@ -54,8 +55,6 @@ typedef struct tgs_tmp
 static const char *SIGNATURE_KRB5TGS = "$krb5tgs$";
 
 #include "hooks_common.c"
-
-#define MAX_EDATA2_LEN 20480
 
 static u64 module_tmp_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
 {
@@ -383,7 +382,8 @@ static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 {
   const krb5tgs_t *krb5tgs = (const krb5tgs_t *) esalt_buf;
 
-  char data[(MAX_EDATA2_LEN * 2) + 1] = { 0 };
+  char *data = (char *) hcmalloc ((MAX_EDATA2_LEN * 2) + 1);
+
   for (u32 i = 0, j = 0; i < krb5tgs->edata2_len; i++, j += 2)
   {
     const u8 *ptr = (const u8 *) krb5tgs->edata2;
@@ -426,6 +426,8 @@ static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
       byte_swap_32 (krb5tgs->checksum[3]),
       data);
   }
+
+  hcfree (data);
 
   return line_len;
 }
