@@ -79,8 +79,8 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   memset (krb5pa, 0, sizeof (krb5pa_3_t));
 
   /**
-   * format 1: $krb5pa$3$user$realm$data
-   * format 2: $krb5pa$3$user$realm$checksum$encrypted
+   * format 1: $krb5pa$3$user$realm$enc_timestamp+checksum
+   * format 2: $krb5pa$3$user$realm$checksum$enc_timestamp
    */
 
   token.signatures_cnt    = 1;
@@ -88,7 +88,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   const int sig_len = (int) strlen (SIGNATURE_KRB5PA);
 
-  // format 2: $krb5pa$3$user$realm$checksum$encrypted
+  // format 2: $krb5pa$3$user$realm$checksum$enc_timestamp
 
   token.token_cnt  = 5;
 
@@ -143,7 +143,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   }
   else
   {
-    // format 1: $krb5pa$3$user$realm$data
+    // format 1: $krb5pa$3$user$realm$enc_timestamp+checksum
 
     memset (&token, 0, sizeof (hc_token_t));
 

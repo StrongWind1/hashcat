@@ -87,9 +87,9 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   memset (krb5asrep, 0, sizeof (krb5asrep_3_t));
 
-    /**
-   * format 1: $krb5asrep$3$user@realm:checksum$encrypted  (joined)
-   * format 2: $krb5asrep$3$user$realm$checksum$encrypted
+  /**
+   * format 1: $krb5asrep$3$user@realm:checksum$edata2  (joined)
+   * format 2: $krb5asrep$3$user$realm$checksum$edata2
    */
 
   token.signatures_cnt    = 1;
@@ -126,7 +126,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   if (joined == true)
   {
-    // format 1: $krb5asrep$3$user@realm:checksum$encrypted  (joined)
+    // format 1: $krb5asrep$3$user@realm:checksum$edata2  (joined)
     token.token_cnt  = 4;
 
     checksum_token   = 2;
@@ -150,7 +150,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   }
   else
   {
-    // format 2: $krb5asrep$3$user$realm$checksum$encrypted
+    // format 2: $krb5asrep$3$user$realm$checksum$edata2
 
     token.token_cnt  = 5;
 

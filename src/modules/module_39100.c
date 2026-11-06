@@ -82,8 +82,8 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   memset (krb5tgs, 0, sizeof (krb5tgs_1_t));
 
   /**
-   * format 1: $krb5tgs$1$*user$realm$spn*$checksum$edata2  (asterisk block)
-   * format 2: $krb5tgs$1$user$realm$checksum$edata2
+   * format 1: $krb5tgs$1$user$realm$checksum$edata2
+   * format 2: $krb5tgs$1$*user$realm$spn*$checksum$edata2  (asterisk block)
    */
 
   token.signatures_cnt    = 1;
@@ -108,7 +108,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   if (line_buf[sig_len] == '*')
   {
-    // format 1: $krb5tgs$1$*user$realm$spn*$checksum$edata2  (asterisk block)
+    // format 2: $krb5tgs$1$*user$realm$spn*$checksum$edata2  (asterisk block)
 
     const char *account_info_start = line_buf + sig_len;
 
@@ -174,7 +174,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   }
   else
   {
-    // format 2: $krb5tgs$1$user$realm$checksum$edata2
+    // format 1: $krb5tgs$1$user$realm$checksum$edata2
 
     token.token_cnt  = 5;
 

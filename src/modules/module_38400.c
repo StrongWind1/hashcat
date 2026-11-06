@@ -10,7 +10,6 @@
 #include "convert.h"
 #include "shared.h"
 #include "parser.h"
-#include "memory.h"
 
 static const u32   ATTACK_EXEC    = ATTACK_EXEC_INSIDE_KERNEL;
 static const u32   DGST_POS0      = 0;
@@ -89,12 +88,9 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   memset (&token, 0, sizeof (hc_token_t));
 
-  /**
-   * $krb5db$1$user$realm$hash
-   * $krb5db$1$user$realm$*spn*$hash
-   *
-   * with 2 and 3 in place of the 1 for the other two DES encryption types
-   */
+  // format 1: $krb5db$<1|2|3>$user$realm$key
+  // format 2: $krb5db$<1|2|3>$user$realm$*spn*$key    (with optional SPN)
+
 
   token.signatures_cnt    = 3;
   token.signatures_buf[0] = SIGNATURE_KRB5DB_1;
