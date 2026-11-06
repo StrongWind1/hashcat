@@ -34,6 +34,8 @@ static const char *ST_HASH        = "$krb5asrep$23$user@domain.com:3e156ada59126
 
 #define MAX_USER_LEN  511
 #define MAX_REALM_LEN 511
+#define MAX_CHECKSUM_LEN 16
+#define MAX_RAW_TOKEN_LEN 2048
 #define MAX_EDATA2_LEN 20480
 
 typedef struct krb5asrep
@@ -85,7 +87,9 @@ static char *module_jit_build_options (MAYBE_UNUSED const hashconfig_t *hashconf
 
   u32 native_threads = (device_param->opencl_device_type & CL_DEVICE_TYPE_CPU) ? 1 : 32;
 
-  hc_asprintf (&jit_build_options, "-D FIXED_LOCAL_SIZE=%u", native_threads);
+  const char *metal_opt_size = (device_param->is_metal == true) ? " -D METAL_OPT_SIZE" : "";
+
+  hc_asprintf (&jit_build_options, "-D FIXED_LOCAL_SIZE=%u%s", native_threads, metal_opt_size);
 
   return jit_build_options;
 }

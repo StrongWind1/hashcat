@@ -35,6 +35,8 @@ static const char *ST_HASH        = "$krb5tgs$17$srv_http$synacktiv.local$849e31
 
 #define MAX_USER_LEN  511
 #define MAX_REALM_LEN 511
+#define MAX_CHECKSUM_LEN 12
+#define MAX_KDC_SALT_LEN 1022
 #define MAX_EDATA2_LEN 20480
 
 typedef struct krb5tgs_17
@@ -271,7 +273,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   const int kdc_salt_words = (krb5tgs->kdc_salt_len + 3) / 4;
 
-  for (int i = 0; i < kdc_salt_words; i++)
+  for (int i = 0; i < kdc_salt_words && i < 64; i++)
     salt->salt_buf[i] = krb5tgs->kdc_salt[i];
 
   salt->salt_len = krb5tgs->kdc_salt_len;

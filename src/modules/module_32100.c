@@ -35,6 +35,8 @@ static const char *ST_HASH        = "$krb5asrep$17$user$EXAMPLE.COM$a419c4030e55
 
 #define MAX_USER_LEN  511
 #define MAX_REALM_LEN 511
+#define MAX_CHECKSUM_LEN 12
+#define MAX_KDC_SALT_LEN 1022
 #define MAX_EDATA2_LEN 20480
 
 // Struct to store the hash structure - same fields as TGS-REP type 17
@@ -268,7 +270,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   u8 *kdc_salt_ptr = (u8 *) krb5asrep->kdc_salt;
 
-  // Domain must be uppercase
+  // realm must be uppercase
   u8 realm[512];
 
   if (krb5asrep->format == 1)
@@ -307,7 +309,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   const int kdc_salt_words = (krb5asrep->kdc_salt_len + 3) / 4;
 
-  for (int i = 0; i < kdc_salt_words; i++)
+  for (int i = 0; i < kdc_salt_words && i < 64; i++)
     salt->salt_buf[i] = krb5asrep->kdc_salt[i];
 
   salt->salt_len = krb5asrep->kdc_salt_len;
