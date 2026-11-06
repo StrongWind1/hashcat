@@ -30,6 +30,9 @@ static const char *ST_HASH        = "$krb5pa$23$user$realm$salt$5cbb0c882a2b2695
 
 #include "hooks_common.c"
 
+#define MAX_USER_LEN  511
+#define MAX_REALM_LEN 511
+
 typedef struct krb5pa
 {
   u32 user[128];
@@ -114,12 +117,12 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   token.sep[1]     = '$';
   token.len_min[1] = 0;
-  token.len_max[1] = 511;
+  token.len_max[1] = MAX_USER_LEN;
   token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
   token.sep[2]     = '$';
   token.len_min[2] = 0;
-  token.len_max[2] = 511;
+  token.len_max[2] = MAX_REALM_LEN;
   token.attr[2]    = TOKEN_ATTR_VERIFY_LENGTH;
 
   token.sep[3]     = '$';
@@ -176,12 +179,12 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[1]     = '$';
     token.len_min[1] = 0;
-    token.len_max[1] = 511;
+    token.len_max[1] = MAX_USER_LEN;
     token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[2]     = '$';
     token.len_min[2] = 0;
-    token.len_max[2] = 511;
+    token.len_max[2] = MAX_REALM_LEN;
     token.attr[2]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[3]     = '$';
@@ -234,12 +237,12 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[1]     = '$';
     token.len_min[1] = 0;
-    token.len_max[1] = 511;
+    token.len_max[1] = MAX_USER_LEN;
     token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[2]     = '$';
     token.len_min[2] = 0;
-    token.len_max[2] = 511;
+    token.len_max[2] = MAX_REALM_LEN;
     token.attr[2]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.len_min[3] = 90;
