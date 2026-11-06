@@ -58,8 +58,8 @@ static const char *module_usage_notice (MAYBE_UNUSED const hashconfig_t *hashcon
 
 typedef struct krb5db_des
 {
-  u32 user[MAX_SALT_LEN / 4];
-  u32 realm[MAX_SALT_LEN / 4];
+  u32 user[128];
+  u32 realm[128];
 
   u32 etype;
 
@@ -119,12 +119,12 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   token.sep[1]     = '$';
   token.len_min[1] = 1;
-  token.len_max[1] = MAX_SALT_LEN - 1;
+  token.len_max[1] = 511;
   token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
   token.sep[2]     = '$';
   token.len_min[2] = 1;
-  token.len_max[2] = MAX_SALT_LEN - 1;
+  token.len_max[2] = 511;
   token.attr[2]    = TOKEN_ATTR_VERIFY_LENGTH;
 
   if (spn_info_start == NULL)
