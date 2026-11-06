@@ -48,9 +48,9 @@ static const char *SIGNATURE_KRB5ASREP = "$krb5asrep$3$";
 
 typedef struct krb5asrep_3
 {
-  u32 user[MAX_SALT_LEN / 4];
-  u32 realm[MAX_SALT_LEN / 4];
-  u32 joined;
+  u32 user[128];
+  u32 realm[128];
+  u32 format;
 
   u32 salt_buf[MAX_SALT_LEN / 4];
   u32 salt_len;
@@ -134,7 +134,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[1]     = ':';
     token.len_min[1] = 3;
-    token.len_max[1] = MAX_SALT_LEN;
+    token.len_max[1] = 511;
     token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[2]     = '$';
@@ -159,12 +159,12 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[1]     = '$';
     token.len_min[1] = 1;
-    token.len_max[1] = MAX_SALT_LEN - 1;
+    token.len_max[1] = 511;
     token.attr[1]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[2]     = '$';
     token.len_min[2] = 1;
-    token.len_max[2] = MAX_SALT_LEN - 1;
+    token.len_max[2] = 511;
     token.attr[2]    = TOKEN_ATTR_VERIFY_LENGTH;
 
     token.sep[3]     = '$';
@@ -233,7 +233,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   // the esalt was zeroed above, so only the joined shape has to say so
 
-  if (joined == true) krb5asrep->joined = 1;
+  if (joined == true) krb5asrep->format = 1;
 
   // the line keeps the first two blocks of the ciphertext apart from the rest, the way the etype 23
   // and etype 3 TGS-REP formats do, although nothing here is a checksum of its own: the checksum of
@@ -298,7 +298,7 @@ static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   int line_len;
 
-  if (krb5asrep->joined == 1)
+  if (krb5asrep->format == 1)
   {
     line_len = snprintf (line_buf, line_size, "%s%s@%s:%08x%08x%08x%08x$%s",
       SIGNATURE_KRB5ASREP,
