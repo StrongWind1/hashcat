@@ -31,11 +31,15 @@ static const char *ST_HASH        = "$krb5asrep$23$user@domain.com:3e156ada59126
 
 #include "hooks_common.c"
 
+#define MAX_USER_LEN  511
+#define MAX_REALM_LEN 511
+#define MAX_EDATA2_LEN 20480
+
 typedef struct krb5asrep
 {
   u32 account_info[512];
   u32 checksum[4];
-  u32 edata2[5120];
+  u32 edata2[MAX_EDATA2_LEN / 4];
   u32 edata2_len;
   u32 format;
   u32 user[128];
@@ -174,7 +178,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[5]     = '$';
     token.len_min[5] = 64;
-    token.len_max[5] = 40958;
+    token.len_max[5] = (MAX_EDATA2_LEN - 1) * 2;
     token.attr[5]    = TOKEN_ATTR_VERIFY_LENGTH
                      | TOKEN_ATTR_VERIFY_HEX;
 
@@ -262,7 +266,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[4]     = '$';
     token.len_min[4] = 64;
-    token.len_max[4] = 40958;
+    token.len_max[4] = (MAX_EDATA2_LEN - 1) * 2;
     token.attr[4]    = TOKEN_ATTR_VERIFY_LENGTH
                      | TOKEN_ATTR_VERIFY_HEX;
   }
@@ -285,7 +289,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
     token.sep[3]     = '$';
     token.len_min[3] = 64;
-    token.len_max[3] = 40958;
+    token.len_max[3] = (MAX_EDATA2_LEN - 1) * 2;
     token.attr[3]    = TOKEN_ATTR_VERIFY_LENGTH
                      | TOKEN_ATTR_VERIFY_HEX;
   }
@@ -390,7 +394,7 @@ static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 {
   const krb5asrep_t *krb5asrep = (const krb5asrep_t *) esalt_buf;
 
-  char *data = (char *) hcmalloc (5120 * 4 * 2 + 1);
+  char *data = (char *) hcmalloc ((MAX_EDATA2_LEN * 2) + 1);
 
   for (u32 i = 0, j = 0; i < krb5asrep->edata2_len; i += 1, j += 2)
   {
