@@ -39,8 +39,8 @@ typedef struct krb5db_17
 {
   u32 user[128];
   u32 realm[128];
-  u32 account_info[512];
-  u32 account_info_len;
+  u32 kdc_salt[512];
+  u32 kdc_salt_len;
 
 } krb5db_17_t;
 
@@ -179,7 +179,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   int user_len;
   int realm_len;
-  int account_info_len;
+  int kdc_salt_len;
 
   user_pos = token.buf[1];
   user_len = token.len[1];
@@ -193,9 +193,9 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   checksum_pos = token.buf[3 + is_spn_provided];
 
-  account_info_len = token.len[2] + token.len[1];
+  kdc_salt_len = token.len[2] + token.len[1];
 
-  u8 *account_info_ptr = (u8 *) krb5db->account_info;
+  u8 *kdc_salt_ptr = (u8 *) krb5db->kdc_salt;
 
   // realm must be uppercase
 
@@ -204,21 +204,21 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   memcpy (realm, realm_pos, realm_len);
   uppercase (realm, realm_len);
 
-  memcpy (account_info_ptr, realm, realm_len);
-  memcpy (account_info_ptr + realm_len, user_pos, user_len);
+  memcpy (kdc_salt_ptr, realm, realm_len);
+  memcpy (kdc_salt_ptr + realm_len, user_pos, user_len);
 
-  krb5db->account_info_len = account_info_len;
+  krb5db->kdc_salt_len = kdc_salt_len;
 
-  // salt - copy enough of account_info for dedup (realm + user can exceed 16 bytes)
+  // salt - copy enough of kdc_salt for dedup (realm + user can exceed 16 bytes)
 
-  const int ai_words = (account_info_len + 3) / 4;
+  const int ai_words = (kdc_salt_len + 3) / 4;
 
   for (int i = 0; i < ai_words && i < 64; i++)
   {
-    salt->salt_buf[i] = krb5db->account_info[i];
+    salt->salt_buf[i] = krb5db->kdc_salt[i];
   }
 
-  salt->salt_len = account_info_len;
+  salt->salt_len = kdc_salt_len;
 
   salt->salt_iter = 4096 - 1;
 

@@ -45,8 +45,8 @@ typedef struct krb5pa_3
   u32 user[128];
   u32 realm[128];
 
-  u32 salt_buf[MAX_SALT_LEN / 4];
-  u32 salt_len;
+  u32 kdc_salt[MAX_SALT_LEN / 4];
+  u32 kdc_salt_len;
 
   u32 enc_timestamp[MAX_TIMESTAMP_LEN / 4];
   u32 enc_timestamp_len;
@@ -194,15 +194,15 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   memcpy (krb5pa->user,  user_pos,  user_len);
   memcpy (krb5pa->realm, realm_pos, realm_len);
 
-  u8 *salt_ptr = (u8 *) krb5pa->salt_buf;
+  u8 *kdc_salt_ptr = (u8 *) krb5pa->kdc_salt;
 
-  memcpy (salt_ptr, realm_pos, realm_len);
+  memcpy (kdc_salt_ptr, realm_pos, realm_len);
 
-  uppercase (salt_ptr, realm_len);
+  uppercase (kdc_salt_ptr, realm_len);
 
-  memcpy (salt_ptr + realm_len, user_pos, user_len);
+  memcpy (kdc_salt_ptr + realm_len, user_pos, user_len);
 
-  krb5pa->salt_len = realm_len + user_len;
+  krb5pa->kdc_salt_len = realm_len + user_len;
 
   u8 *ts_ptr = (u8 *) krb5pa->enc_timestamp;
 
