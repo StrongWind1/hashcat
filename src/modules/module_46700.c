@@ -595,6 +595,114 @@ static int parse_new_rar30 (u32 *digest, salt_t *salt, rar3_hook_salt_t *hook_sa
   return (PARSER_OK);
 }
 
+// The $RAR3$*1* line of modes 23700 and 23800: salt, CRC32, packed and unpacked size as decimal
+// numbers, a 1 that says the data is in the line, the data, and the method as the two digits 30 to
+// 35. It holds what a type 1 $rar$30$ line holds, so it is put into that form and parsed as one. The
+// CRC32 is written there as the four bytes of the file header in their order, and in a $rar$30$
+// line as the number they make, which is what hex_to_u32 reads out of the old form.
+
+static int parse_old_rar3_file (u32 *digest, salt_t *salt, rar3_hook_salt_t *hook_salt, const char *line_buf, const int line_len)
+{
+  hc_token_t token;
+
+  memset (&token, 0, sizeof (hc_token_t));
+
+  token.token_cnt  = 9;
+
+  token.signatures_cnt    = 1;
+  token.signatures_buf[0] = SIGNATURE_RAR3;
+
+  token.sep[0]     = '*';
+  token.len[0]     = 6;
+  token.attr[0]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_SIGNATURE;
+
+  token.sep[1]     = '*';
+  token.len[1]     = 1;
+  token.attr[1]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_DIGIT;
+
+  token.sep[2]     = '*';
+  token.len[2]     = 16;
+  token.attr[2]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_HEX;
+
+  token.sep[3]     = '*';
+  token.len[3]     = 8;
+  token.attr[3]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_HEX;
+
+  token.sep[4]     = '*';
+  token.len_min[4] = 1;
+  token.len_max[4] = 7;
+  token.attr[4]    = TOKEN_ATTR_VERIFY_LENGTH
+                   | TOKEN_ATTR_VERIFY_DIGIT;
+
+  token.sep[5]     = '*';
+  token.len_min[5] = 1;
+  token.len_max[5] = 10;
+  token.attr[5]    = TOKEN_ATTR_VERIFY_LENGTH
+                   | TOKEN_ATTR_VERIFY_DIGIT;
+
+  token.sep[6]     = '*';
+  token.len[6]     = 1;
+  token.attr[6]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_DIGIT;
+
+  token.sep[7]     = '*';
+  token.len_min[7] = 32;
+  token.len_max[7] = RAR30_DATA_MAX * 2;
+  token.attr[7]    = TOKEN_ATTR_VERIFY_LENGTH
+                   | TOKEN_ATTR_VERIFY_HEX;
+
+  token.len[8]     = 2;
+  token.attr[8]    = TOKEN_ATTR_FIXED_LENGTH
+                   | TOKEN_ATTR_VERIFY_DIGIT;
+
+  const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, line_len, &token);
+
+  if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
+
+  if (token.buf[1][0] != '1') return (PARSER_SIGNATURE_UNMATCHED);
+
+  if (token.buf[6][0] != '1') return (PARSER_SALT_VALUE);
+
+  const u32 crc32       = hex_to_u32 (token.buf[3]);
+  const u32 pack_size   = (u32) hc_strtoul ((const char *) token.buf[4], NULL, 10);
+  const u32 unpack_size = (u32) hc_strtoul ((const char *) token.buf[5], NULL, 10);
+  const u32 method_dec  = (u32) hc_strtoul ((const char *) token.buf[8], NULL, 10);
+
+  if ((method_dec < 30) || (method_dec > 35)) return (PARSER_SALT_VALUE);
+
+  const u32 method = 0x30 + (method_dec - 30);
+
+  const u32 data_hex_len = (u32) token.len[7];
+
+  const size_t new_size = (size_t) data_hex_len + 128;
+
+  char *new_buf = (char *) hcmalloc (new_size);
+
+  if (new_buf == NULL) return (PARSER_HAVE_ERRNO);
+
+  int new_len = snprintf (new_buf, new_size, "%s*1*%.16s*%08x*%x*%x*%x*", SIGNATURE_RAR30, (const char *) token.buf[2], crc32, pack_size, unpack_size, method);
+
+  memcpy (&new_buf[new_len], token.buf[7], data_hex_len);
+
+  new_len += (int) data_hex_len;
+
+  new_len += snprintf (&new_buf[new_len], new_size - (size_t) new_len, "%s", SIGNATURE_RAR_STOP);
+
+  const int rc_parse = parse_new_rar30 (digest, salt, hook_salt, new_buf, new_len);
+
+  hcfree (new_buf);
+
+  if (rc_parse != PARSER_OK) return (rc_parse);
+
+  hook_salt->legacy_format = 1;
+
+  return (PARSER_OK);
+}
+
 static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED void *digest_buf, MAYBE_UNUSED salt_t *salt, MAYBE_UNUSED void *esalt_buf, MAYBE_UNUSED void *hook_salt_buf, MAYBE_UNUSED hashinfo_t *hash_info, const char *line_buf, MAYBE_UNUSED const int line_len)
 {
   u32 *digest = (u32 *) digest_buf;
@@ -610,7 +718,32 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
     return parse_new_rar30 (digest, salt, hook_salt, line_buf, line_len);
   }
 
-  // fall back to old $RAR3$ format (type=0 only)
+  // What is left is a $RAR3$ line. rar2john and the tools made from it end such a line with fields
+  // of their own behind a colon, :type::::archive_name or :type::file_name, which the hash stops
+  // in front of. Nothing in the hash itself is a colon.
+
+  int old_len = line_len;
+
+  if ((line_len > 6) && (strncmp (line_buf, SIGNATURE_RAR3, 6) == 0))
+  {
+    for (int i = 0; i < line_len; i++)
+    {
+      if (line_buf[i] != ':') continue;
+
+      old_len = i;
+
+      break;
+    }
+  }
+
+  // the file encryption line of modes 23700 and 23800
+
+  if ((old_len > 9) && (strncmp (line_buf, "$RAR3$*1*", 9) == 0))
+  {
+    return parse_old_rar3_file (digest, salt, hook_salt, line_buf, old_len);
+  }
+
+  // the header encryption line of mode 12500
 
   hc_token_t token;
 
@@ -642,7 +775,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
   token.attr[3]    = TOKEN_ATTR_VERIFY_LENGTH
                    | TOKEN_ATTR_VERIFY_HEX;
 
-  const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, line_len, &token);
+  const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, old_len, &token);
 
   if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
 
@@ -689,7 +822,28 @@ static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 {
   const rar3_hook_salt_t *hook_salt = (const rar3_hook_salt_t *) hook_salt_buf;
 
-  if (hook_salt != NULL && hook_salt->type == 1)
+  // A line that came in the form of modes 23700 and 23800 goes out in it.
+
+  if ((hook_salt != NULL) && (hook_salt->type == 1) && (hook_salt->legacy_format == 1))
+  {
+    int line_len = snprintf (line_buf, line_size, "%s*1*%08x%08x*%08x*%u*%u*1*",
+        SIGNATURE_RAR3,
+        byte_swap_32 (salt->salt_buf[0]),
+        byte_swap_32 (salt->salt_buf[1]),
+        byte_swap_32 (hook_salt->crc32),
+        hook_salt->pack_size,
+        hook_salt->unpack_size);
+
+    if ((u64) line_len + ((u64) hook_salt->data_len * 2) + 8 >= (u64) line_size) return 0;
+
+    line_len += hex_encode (hook_salt->data, (int) hook_salt->data_len, (u8 *) &line_buf[line_len]);
+
+    line_len += snprintf (&line_buf[line_len], line_size - line_len, "*%u", 30 + (hook_salt->method - 0x30));
+
+    return line_len;
+  }
+
+  if ((hook_salt != NULL) && (hook_salt->type == 1))
   {
     int line_len = snprintf (line_buf, line_size, "%s*1*%08x%08x*%08x*%x*%x*%x*",
         SIGNATURE_RAR30,
