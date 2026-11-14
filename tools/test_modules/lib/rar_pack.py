@@ -15,6 +15,25 @@
 # its own value in 4 bits and the run length symbols are never needed.
 
 
+# The stream layouts written here are those the decompressors of UnRAR 7.3.2 read (unpack15.cpp,
+# unpack20.cpp, unpack30.cpp and unpack50.cpp). The packers exist to test hashcat's unpacking and
+# write literals only.
+#
+# UnRAR's license, paragraph 2, which has to accompany code derived from its source:
+#
+#   UnRAR source code may be used in any software to handle
+#   RAR archives without limitations free of charge, but cannot be
+#   used to develop RAR (WinRAR) compatible archiver and to
+#   re-create RAR compression algorithm, which is proprietary.
+#   Distribution of modified UnRAR source code in separate form
+#   or as a part of other software is permitted, provided that
+#   full text of this paragraph, starting from "UnRAR source code"
+#   words, is included in license, or in documentation if license
+#   is not available, and in source code comments of resulting package.
+#
+# The full license is in docs/license_libs/UNRAR_LICENSE.txt.
+
+
 class BitWriter:
     def __init__(self):
         self.bits = []
