@@ -46,7 +46,7 @@ static u64 module_kern_bits (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_
 
 static const char *module_usage_notice (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
 {
-  return "Use ArchiveWolf to extract these hashes. A line carries the whole encrypted entry. The password is used as raw bytes, in the code page of the system that created the archive.";
+  return "You can use https://github.com/hashcat/hashcat/blob/master/tools/rar2hashcat.py or ArchiveWolf to extract the hashes. A line carries the whole encrypted entry. The password is used as raw bytes, in the code page of the system that created the archive.";
 }
 
 static u64 module_esalt_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
