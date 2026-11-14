@@ -3738,12 +3738,13 @@ def run_container_mode(args, mode, tmp):
 GPG_GEN_MODES      = {17010, 17020, 17030, 17040, 17050}
 PKZIP_GEN_MODES    = {17200, 17210, 17220, 17225, 17230}
 RAR_GEN_MODES      = {12500, 13000, 23700, 23800}
+RARWOLF_GEN_MODES  = {46500, 46600, 46700, 46800}
 SEVENZIP_GEN_MODES = {11600, 13600}
 PDF_GEN_MODES      = {10400, 10500, 10700}
 SSH_GEN_MODES      = {22931}
 
-ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | RAR_GEN_MODES | SEVENZIP_GEN_MODES
-                     | PDF_GEN_MODES | SSH_GEN_MODES)
+ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | RAR_GEN_MODES | RARWOLF_GEN_MODES
+                     | SEVENZIP_GEN_MODES | PDF_GEN_MODES | SSH_GEN_MODES)
 
 # The container families -g can build. 14600 (legacy LUKS) and the CryptoLoop modes have no generator.
 CONTAINER_GEN_MODES = ({34100} | set(LUKS1_HASH_CIPHER) | TC_MODES | VC_MODES)
@@ -4517,6 +4518,96 @@ def gen_rar(args, mode, tmp):
   archive_crack(args, mode, hash_file, "RAR-container %s" % label, tmp, fast=False)
 
 
+def gen_rar_archivewolf(args, mode, tmp):
+  # Real RAR archives for the modes that read ArchiveWolf's $rar$NN$ lines. Each mode is built
+  # several ways, because what it checks depends on how the entry was written: a header encrypted
+  # archive is checked against a header, a stored entry against its CRC32 after decryption, and a
+  # compressed one only after the mode has unpacked it. RAR 3.x and 5.x come from RARLAB rar, where
+  # RAR 3.x (-ma4) needs rar 6.x or older. No RARLAB rar for this platform writes RAR 1.5 or 2.0, so
+  # those come from the rars tool. The hash is read back with ArchiveWolf.
+  archivewolf = _tool("ARCHIVEWOLF_BIN", "archivewolf")
+
+  if not _have(archivewolf):
+    gen_skip(mode, "archivewolf not found (set ARCHIVEWOLF_BIN=/path/to/archivewolf)")
+    return
+
+  pw   = CONTAINER_PASSWORD.decode("utf-8")
+  rdir = os.path.join(tmp, "rarwolf_%d" % mode)
+  sdir = os.path.join(rdir, "src")
+  os.makedirs(sdir, exist_ok=True)
+
+  payload = os.path.join(sdir, "payload.txt")
+
+  with open(payload, "wb") as fh:
+    fh.write(b"pattern the quick brown fox jumps over the lazy dog " * 160)
+
+  def arc(label):
+    return os.path.join(rdir, "%d_%s.rar" % (mode, label))
+
+  if mode in (46500, 46600):
+    rars = _tool("RARS_BIN", "rars")
+
+    if not _have(rars):
+      gen_skip(mode, "rars not found, the only tool here that writes RAR 1.5 and 2.0 (set RARS_BIN=/path/to/rars)")
+      return
+
+    fmt  = "rar15" if mode == 46500 else "rar20"
+    head = [rars, "add", "--progress", "never", "--format", fmt, "-p", pw]
+
+    builds = [
+      ("stored",     head + ["--store"]),
+      ("compressed", head + ["--level", "3"]),
+    ]
+
+    builds = [(label, cmd + [arc(label), payload]) for label, cmd in builds]
+  else:
+    rar_bin = os.environ.get("RAR_BIN")
+
+    if not rar_bin:
+      old = os.path.join(os.path.expanduser("~"), "rar-old", "rar")
+      rar_bin = old if os.path.exists(old) else "rar"
+
+    if not _have(rar_bin):
+      gen_skip(mode, "rar not found. Fetch rarlinux-x64-612.tar.gz from rarlab.com, or set RAR_BIN=/path/to/rar")
+      return
+
+    if mode == 46700:
+      builds = [
+        ("header",     [rar_bin, "a", "-ma4", "-m3", "-hp" + pw, "-inul", arc("header"), payload]),
+        ("stored",     [rar_bin, "a", "-ma4", "-m0", "-p" + pw, "-inul", arc("stored"), payload]),
+        ("compressed", [rar_bin, "a", "-ma4", "-m3", "-p" + pw, "-inul", arc("compressed"), payload]),
+      ]
+    else:
+      builds = [
+        ("header",     [rar_bin, "a", "-ma5", "-m3", "-hp" + pw, "-inul", arc("header"), payload]),
+        ("file",       [rar_bin, "a", "-ma5", "-m3", "-p" + pw, "-inul", arc("file"), payload]),
+      ]
+
+  token_re = r"\$rar\$%d\$\S+\$/rar\$" % {46500: 15, 46600: 20, 46700: 30, 46800: 50}[mode]
+
+  for label, cmd in builds:
+    gen_run(cmd)
+
+    if not os.path.exists(arc(label)) or os.path.getsize(arc(label)) == 0:
+      if mode == 46700:
+        gen_skip(mode, "%s cannot create RAR3 (-ma4), it is likely rar 7.x; set RAR_BIN=/path/to/rar<=6.x" % cmd[0])
+      else:
+        gen_error(mode, "%s failed to create %s" % (cmd[0], arc(label)))
+
+      continue
+
+    rc, out = gen_run([archivewolf, "--all-hashes", "--format", "hashcat", "info", arc(label)])
+    token   = _john_extract(out, token_re)
+
+    if token is None:
+      gen_error(mode, "archivewolf produced no hash for %s" % arc(label))
+      continue
+
+    hash_file = os.path.join(rdir, "%d_%s.hash" % (mode, label))
+    write_hash(hash_file, token)
+    archive_crack(args, mode, hash_file, "RAR-container %s" % label, tmp, fast=False)
+
+
 def gen_sevenzip(args, mode, tmp):
   # 11600 from a 7-Zip archive (7z2john.pl), 13600 WinZip AES from a zip (zip2john). 11600 is built
   # four ways because the mode decrypts and decompresses a block and checks a CRC, so the codec is
@@ -4687,6 +4778,7 @@ ARCHIVE_GENERATORS = [
   (PKZIP_GEN_MODES,    gen_pkzip),
   (GPG_GEN_MODES,      gen_gpg),
   (RAR_GEN_MODES,      gen_rar),
+  (RARWOLF_GEN_MODES,  gen_rar_archivewolf),
   (SEVENZIP_GEN_MODES, gen_sevenzip),
   (PDF_GEN_MODES,      gen_pdf),
   (SSH_GEN_MODES,      gen_ssh),
