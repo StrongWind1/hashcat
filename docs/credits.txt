@@ -71,6 +71,7 @@ Other contributors to hashcat
 * zstd by Yann Collet (@Cyan4973) (loaded at runtime)
 * micro-ecc by Ken MacKay (used as reference for some secp256k1 operations)
 * PPMd var.H by Dmitry Shkarin and Dmitry Subbotin, in Igor Pavlov's 7-Zip implementation (vendored)
+* UnRAR by Alexander Roshal (the decompressors and the RAR 1.5 and 2.0 ciphers of modes 46500 to 46800 are written after its source, see docs/license_libs/UNRAR_LICENSE.txt)
 
 # hashcat implements the following algorithms designed by others:
 

@@ -60,6 +60,7 @@ end.
 | GPG | 17010, 17020, 17030, 17040, 17050 | `gpg2`, `gpg1`, `gpg2john` | No `gpg1`: only what `gpg2` writes by default is covered, which drops the classic S2K combinations and the AES-128 (aux1) path. A note, not a skip. No `gpg2john`: skipped. |
 | PKZIP | 17200, 17210, 17220, 17225, 17230 | `zip`, `zip2john` | Skipped. |
 | RAR | 12500, 13000, 23700, 23800 | `rar` 6.x or older, `rar2john` | Only RAR5 (13000) is built, the RAR3 modes are skipped. 23800 has no `test_module_runner.py` oracle at all, so without `-g` it is skipped whatever is installed. |
+| RAR, `$rar$` lines | 46500, 46600, 46700, 46800 | `rars` for 46500 and 46600, `rar` 6.x or older for 46700, any `rar` for 46800. The hash is read with `tools/rar2hashcat.py`, which is in the tree | A mode whose archiver is missing is skipped. Each mode is built stored, compressed and, for 46700 and 46800, with encrypted headers. |
 | 7-Zip | 11600 | `7z`, `7z2john.pl`, `Compress::Raw::Lzma` | Skipped. |
 | WinZip AES | 13600 | `7z`, `zip2john` | Skipped. |
 | PDF | 10400, 10500, 10700 | `qpdf`, `gs`, `pdf2john.pl` | Skipped. `gs` writes the plain PDF that `qpdf` then encrypts. |
@@ -81,6 +82,9 @@ to get wrong:
 * **rar 6.12** for the RAR3 modes. No package either: `apt install rar` is 7.x,
   which writes RAR5 only, so the script fetches RARLAB's static build into
   `$HOME/rar-old`. Override with `RAR_BIN=`.
+* **rars** for the RAR 1.5 and 2.0 modes, 46500 and 46600. No RARLAB release
+  for Linux writes those formats, and the script does not fetch this one. Put it
+  on `PATH` or point `RARS_BIN=` at it.
 * **gpg1** is the separate `gnupg1` package, installed alongside `gnupg` rather
   than instead of it. Override with `GPG1_BIN=`.
 * **veracrypt 1.25.9** for the RIPEMD-160 modes, which 1.26 dropped and no

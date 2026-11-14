@@ -53,7 +53,7 @@ static bool        module_length_sort    (MAYBE_UNUSED const hashconfig_t *hashc
 
 static const char *module_usage_notice (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
 {
-  return "Use ArchiveWolf to extract $rar$30$ hashes. A type 1 line carries the whole encrypted entry; solid members that depend on earlier files cannot be verified.";
+  return "You can use https://github.com/hashcat/hashcat/blob/master/tools/rar2hashcat.py or ArchiveWolf to extract $rar$30$ hashes. The $RAR3$ lines of modes 12500, 23700 and 23800 are read as well. A type 1 line carries the whole encrypted entry, up to 4 MiB.";
 }
 
 typedef struct rar3_tmp
