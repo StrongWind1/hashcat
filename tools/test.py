@@ -4459,18 +4459,14 @@ def gen_rar(args, mode, tmp):
   archive_crack(args, mode, hash_file, "RAR-container %s" % label, tmp, fast=False)
 
 
-def gen_rar_archivewolf(args, mode, tmp):
-  # Real RAR archives for the modes that read ArchiveWolf's $rar$NN$ lines. Each mode is built
+def gen_rar_modes(args, mode, tmp):
+  # Real RAR archives for the modes that read $rar$NN$ lines. Each mode is built
   # several ways, because what it checks depends on how the entry was written: a header encrypted
   # archive is checked against a header, a stored entry against its CRC32 after decryption, and a
   # compressed one only after the mode has unpacked it. RAR 3.x and 5.x come from RARLAB rar, where
   # RAR 3.x (-ma4) needs rar 6.x or older. No RARLAB rar for this platform writes RAR 1.5 or 2.0, so
-  # those come from the rars tool. The hash is read back with ArchiveWolf.
-  archivewolf = _tool("ARCHIVEWOLF_BIN", "archivewolf")
-
-  if not _have(archivewolf):
-    gen_skip(mode, "archivewolf not found (set ARCHIVEWOLF_BIN=/path/to/archivewolf)")
-    return
+  # those come from the rars tool. The hash is read back with tools/rar2hashcat.py.
+  rar2hashcat = os.path.join(TDIR, "rar2hashcat.py")
 
   pw   = CONTAINER_PASSWORD.decode("utf-8")
   rdir = os.path.join(tmp, "rarwolf_%d" % mode)
@@ -4537,11 +4533,11 @@ def gen_rar_archivewolf(args, mode, tmp):
 
       continue
 
-    rc, out = gen_run([archivewolf, "--all-hashes", "--format", "hashcat", "info", arc(label)])
+    rc, out = gen_run([sys.executable, rar2hashcat, "--all-hashes", arc(label)])
     token   = _john_extract(out, token_re)
 
     if token is None:
-      gen_error(mode, "archivewolf produced no hash for %s" % arc(label))
+      gen_error(mode, "rar2hashcat.py produced no hash for %s" % arc(label))
       continue
 
     hash_file = os.path.join(rdir, "%d_%s.hash" % (mode, label))
@@ -4719,7 +4715,7 @@ ARCHIVE_GENERATORS = [
   (PKZIP_GEN_MODES,    gen_pkzip),
   (GPG_GEN_MODES,      gen_gpg),
   (RAR_GEN_MODES,      gen_rar),
-  (RARWOLF_GEN_MODES,  gen_rar_archivewolf),
+  (RARWOLF_GEN_MODES,  gen_rar_modes),
   (SEVENZIP_GEN_MODES, gen_sevenzip),
   (PDF_GEN_MODES,      gen_pdf),
   (SSH_GEN_MODES,      gen_ssh),
