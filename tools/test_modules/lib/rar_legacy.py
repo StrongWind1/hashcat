@@ -7,6 +7,22 @@
 # lines are $rar$NN$*crc*us*ds*data$/rar$: the CRC32 of the unpacked file, its size, the size of the
 # encrypted entry and the entry itself. The entries generated here are stored, not compressed.
 
+# The two ciphers follow UnRAR 7.3.2 (crypt1.cpp and crypt2.cpp).
+#
+# UnRAR's license, paragraph 2, which has to accompany code derived from its source:
+#
+#   UnRAR source code may be used in any software to handle
+#   RAR archives without limitations free of charge, but cannot be
+#   used to develop RAR (WinRAR) compatible archiver and to
+#   re-create RAR compression algorithm, which is proprietary.
+#   Distribution of modified UnRAR source code in separate form
+#   or as a part of other software is permitted, provided that
+#   full text of this paragraph, starting from "UnRAR source code"
+#   words, is included in license, or in documentation if license
+#   is not available, and in source code comments of resulting package.
+#
+# The full license is in docs/license_libs/UNRAR_LICENSE.txt.
+
 import zlib
 
 MASK16 = 0xFFFF
