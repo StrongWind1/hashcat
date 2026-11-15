@@ -1,0 +1,30 @@
+LZMA SDK decoders, from the 7-Zip source distribution
+=====================================================
+
+hashcat compiles in the decoders 7-Zip uses for LZMA, LZMA2, PPMd, BCJ2, its branch converters and
+Delta, to unpack a 7z folder in mode 46900. The files are in src/modules/sevenzip and are byte
+identical to the 7-Zip source distribution they came from. src/modules/sevenzip/ORIGIN.txt records
+which release, with checksums.
+
+Every file states its own authorship and licence in its first lines, and those lines are untouched.
+For all but the PPMd files that statement is, with the name and date of the file:
+
+  /* LzmaDec.c -- LZMA Decoder
+  : Igor Pavlov : Public domain */
+
+Igor Pavlov places the same code in the public domain in DOC/lzma.txt of the LZMA SDK and of the
+7-Zip source distribution:
+
+  LZMA SDK is written and placed in the public domain by Igor Pavlov.
+
+  Some code in LZMA SDK is based on public domain code from another developers:
+    1) PPMd var.H (2001): Dmitry Shkarin
+    2) SHA-256: Wei Dai (Crypto++ library)
+
+  Anyone is free to copy, modify, publish, use, compile, sell, or distribute the
+  original LZMA SDK code, either in source code form or as a compiled binary, for
+  any purpose, commercial or non-commercial, and by any means.
+
+The PPMd files are covered by docs/license_libs/PPMD_LICENSE.txt as well.
+
+The parts of 7-Zip that are under the GNU LGPL or carry the unRAR restriction are not used.

@@ -1,0 +1,49 @@
+Where this code came from
+=========================
+
+This directory holds the decoders -m 46900 uses to unpack a 7z folder once it has been decrypted:
+LZMA, LZMA2, PPMd, BCJ2, the branch converters and Delta. None of it was written for hashcat. Every
+file is copied unchanged from a public domain distribution, and this file records which one so the
+claim can be checked with a diff.
+
+
+The files
+
+  LzmaDec.h, LzmaDec.c        LZMA
+  Lzma2Dec.h, Lzma2Dec.c      LZMA2, which is LZMA in chunks
+  Ppmd.h, Ppmd7.h, Ppmd7.c    the PPMd var.H model, the allocator and the update rules
+  Ppmd7Dec.c                  the decoder driven by the range coder 7-Zip uses in its own container
+  Bcj2.h, Bcj2.c              BCJ2, which puts x86 code back together from four streams
+  Bra.h, Bra.c, Bra86.c       the branch converters: x86, PowerPC, IA-64, ARM, ARM Thumb, SPARC,
+                              ARM64 and RISC-V
+  RotateDefs.h                bit rotation, which Bra.c includes
+  Delta.h, Delta.c            Delta
+  Precomp.h, Compiler.h       compiler shims those include
+  CpuArch.h, 7zTypes.h, 7zWindows.h
+
+Each states its own authorship and licence in its first lines, untouched. Igor Pavlov placed all of
+them in the public domain, and docs/license_libs/LZMA_SDK_LICENSE.txt is the record of that. The
+PPMd files name Dmitry Shkarin as the author of the model, who did the same.
+
+All 21 come from the 7-Zip source distribution, directory C/, and every one is byte identical to its
+counterpart there. Nine of them are also in src/modules/rar3/ppmd7, from the same release. They are
+repeated here so that each directory can be checked, and updated, on its own.
+
+UPSTREAM beside this file names the release, its URL and its checksum, and holds the sha256 of every
+file as published. Those are in the format sha256sum reads, so one command run from this directory
+says whether anything has drifted:
+
+  grep -E '^[0-9a-f]{64}  ' UPSTREAM | sha256sum -c -
+
+Updating is: copy the files from a newer release over these, update UPSTREAM, and run that again.
+Nothing here carries a local change, so there is no fork to re-apply.
+
+
+What is not here
+
+7-Zip decodes Deflate, Deflate64 and BZip2 in C++, under the LGPL. Those three are written for
+hashcat in src/modules/sevenzip_decode.c, which also holds everything that ties the decoders of this
+directory to a hash line. Zstandard goes to the library hashcat loads at run time.
+
+Byte swapping is in 7-Zip as SwapBytes.c, which is mostly code for vector instructions. The two
+filters that need it are six lines each in sevenzip_decode.c.
