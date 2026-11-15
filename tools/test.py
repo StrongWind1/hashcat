@@ -1446,7 +1446,7 @@ def run_single(opts, mode, pairs, args, width, file_only, pass_only, tmp):
 
     candidate = word
 
-    if mode == 20510:
+    if mode in (20510, 46410):
       # PKZIP master key, 6 byte optimization: hashcat is fed the key without its first 6 bytes and
       # reconstructs the whole password in the crack line, which output_has_crack still matches
       # against the full word. The other attacks already cut the word the same way.
@@ -1577,7 +1577,7 @@ def whole_word_single(r, attack):
   for word, digest in vectors[:max_n]:
     candidate = word
 
-    if r.mode == 20510:
+    if r.mode in (20510, 46410):
       # PKZIP master key: hashcat is fed the key without its 6 byte prefix, the recovered line still
       # carries the whole password (test.sh).
       candidate = word[6:]
@@ -1802,7 +1802,7 @@ def combinator_single_range(mode):
 
   if mode in (14000, 14100, 14300, 14900, 15400):
     smin, smax = 0, 5
-  elif mode == 20510:
+  elif mode in (20510, 46410):
     smin = 2
 
   return smin, smax
@@ -1881,7 +1881,7 @@ def run_combinator_single(r, dict1_lines, dict2_lines, dict1_path, dict2_path):
 
       d1p, d2p = dict1_path, dict2_path
 
-      if r.mode == 20510:
+      if r.mode in (20510, 46410):
         # dict line for this hash: min 0 counts from 1, otherwise it trails the hash by one
         # because init() left the length 1 line out (test.sh).
         if smin == 0:
@@ -2098,7 +2098,7 @@ def a3_single_mask(mode, word, i):
   if mode in (14000, 14100, 14300):
     return word
 
-  if mode == 20510:
+  if mode in (20510, 46410):
     # PKZIP master key, 6 byte optimization: the kernel is fed the password with its first 6 bytes
     # dropped and reconstructs them, so the mask has to spell that stripped candidate, not the whole
     # word. Build it over the candidate directly, byte by byte, rather than cutting a literalized
@@ -2138,13 +2138,13 @@ def attack_3_single(r):
       continue
 
     # test.sh: PKZIP master key needs at least two '?d' groups to keep after the cut.
-    if r.mode == 20510 and i <= 1:
+    if r.mode in (20510, 46410) and i <= 1:
       i += 1
 
       continue
 
     # PKZIP master key: a word of 6 bytes or fewer leaves an empty mask past the cut.
-    if r.mode == 20510 and len(word) <= 6:
+    if r.mode in (20510, 46410) and len(word) <= 6:
       i += 1
 
       continue
@@ -2527,7 +2527,7 @@ def attack_6_single(r):
 
       pass_b = word
 
-      if r.mode == 20510:
+      if r.mode in (20510, 46410):
         # PKZIP master key: hashcat is fed the key without its 6 byte prefix.
         pass_b = pass_b[6:]
 
@@ -2772,7 +2772,7 @@ def attack_7_single(r):
       d2_path  = dict2_base
       active   = custom_active
 
-      if r.mode == 20510:
+      if r.mode in (20510, 46410):
         # PKZIP master key, 6 byte optimization: the kernel is fed the password with its first 6
         # bytes dropped and reconstructs them, so the candidate the mask and the dict build between
         # them has to be that stripped password, not the whole one. A short head spells the mask,
@@ -2785,8 +2785,8 @@ def attack_7_single(r):
           continue
 
         cut        = pass_full[6:]
-        mpairs     = multi_pairs(20510, i, optimized)
-        md1, _     = build_multi_dicts(20510, i, mpairs)
+        mpairs     = multi_pairs(r.mode, i, optimized)
+        md1, _     = build_multi_dicts(r.mode, i, mpairs)
         multi_head = md1[0] if md1 else b""
         mask_len   = len(mask_literalize(mask_dots(len(multi_head)), multi_head)) // 2
 
@@ -2960,7 +2960,7 @@ def attack_7(r):
 # nothing for a mask on both sides of the word to vary, and 20510 reports a plaintext that is not the
 # candidate it was given. attack_6 and attack_7 already cover these (test.sh).
 
-A12_SKIP = {14000, 14100, 14300, 14900, 15400, 20510}
+A12_SKIP = {14000, 14100, 14300, 14900, 15400, 20510, 46410}
 
 
 def a12_single_max(mode):
@@ -3737,12 +3737,13 @@ def run_container_mode(args, mode, tmp):
 
 GPG_GEN_MODES      = {17010, 17020, 17030, 17040, 17050}
 PKZIP_GEN_MODES    = {17200, 17210, 17220, 17225, 17230}
+ZIPWOLF_GEN_MODES  = {46100, 46200}
 RAR_GEN_MODES      = {12500, 13000, 23700, 23800}
 SEVENZIP_GEN_MODES = {11600, 13600}
 PDF_GEN_MODES      = {10400, 10500, 10700}
 SSH_GEN_MODES      = {22931}
 
-ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | RAR_GEN_MODES | SEVENZIP_GEN_MODES
+ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | ZIPWOLF_GEN_MODES | RAR_GEN_MODES | SEVENZIP_GEN_MODES
                      | PDF_GEN_MODES | SSH_GEN_MODES)
 
 # The container families -g can build. 14600 (legacy LUKS) and the CryptoLoop modes have no generator.
@@ -4261,6 +4262,105 @@ def generate_containers(args, mode, tmp):
 
 # ---- archive generators (test.sh pkzip_test/gpg_test/rar_test/sevenzip_test/pdf_gen_test/ssh_test) ----
 
+def gen_zip_modes(args, mode, tmp):
+  # Real ZIP archives for the modes that read $zip$N$ lines. Each mode is built several ways,
+  # because what it checks depends on how the entry was written: a stored entry is checked against
+  # its CRC-32, a deflated one is inflated, a bzip2 one is recognised by its signature, and a
+  # WinZip AES entry is checked against its authentication code. Traditional encryption comes from
+  # InfoZip zip, WinZip AES from 7-Zip. Nothing free writes PKWARE strong encryption, so modes
+  # 46300 to 46320 have no archive here. The hash is read back with tools/zip2hashcat.py.
+  global CONTAINER_PASSWORD
+
+  zip2hashcat = os.path.join(TDIR, "zip2hashcat.py")
+
+  # 7-Zip refuses a ZIP password that is not ASCII, and a pure run draws one that is not. Mode
+  # 46200 has no other kernel to fall back to, so its archives are built, and cracked, with the
+  # ASCII bytes of the password.
+  saved = CONTAINER_PASSWORD
+
+  if mode == 46200:
+    CONTAINER_PASSWORD = bytes(b for b in saved if b < 0x80) or b"hashcat"
+
+  try:
+    _gen_zip_modes(args, mode, tmp, zip2hashcat)
+  finally:
+    CONTAINER_PASSWORD = saved
+
+
+def _gen_zip_modes(args, mode, tmp, zip2hashcat):
+  pw   = CONTAINER_PASSWORD.decode("utf-8")
+  zdir = os.path.join(tmp, "zipwolf_%d" % mode)
+  sdir = os.path.join(zdir, "src")
+  os.makedirs(sdir, exist_ok=True)
+
+  for i in (1, 2, 3):
+    with open(os.path.join(sdir, "t%d.txt" % i), "wb") as fh:
+      fh.write(("pattern %d the quick brown fox jumps over the lazy dog " % i).encode() * 160)
+
+  t = lambda n: os.path.join(sdir, n)
+
+  def arc(label):
+    return os.path.join(zdir, "%d_%s.zip" % (mode, label))
+
+  if mode == 46100:
+    zip_bin = _tool("ZIP_BIN", "zip")
+
+    if not shutil.which(zip_bin):
+      gen_skip(mode, "'zip' not found (install InfoZip zip)")
+      return
+
+    head = [zip_bin, "-q", "-X", "-e", "-P", pw]
+
+    builds = [
+      ("stored",       head + ["-0", arc("stored"), t("t1.txt")]),
+      ("deflate",      head + ["-9", arc("deflate"), t("t1.txt")]),
+      ("bzip2",        head + ["-Z", "bzip2", arc("bzip2"), t("t1.txt")]),
+      ("three_stored", head + ["-0", arc("three_stored"), t("t1.txt"), t("t2.txt"), t("t3.txt")]),
+    ]
+  else:
+    sevenzip = _tool("SEVENZIP_BIN", "7z")
+
+    if not _have(sevenzip):
+      gen_skip(mode, "7z not found (set SEVENZIP_BIN=/path/to/7z)")
+      return
+
+    head = [sevenzip, "a", "-tzip", "-p" + pw]
+
+    builds = [
+      ("aes128",        head + ["-mem=AES128", arc("aes128"), t("t1.txt")]),
+      ("aes192",        head + ["-mem=AES192", arc("aes192"), t("t1.txt")]),
+      ("aes256",        head + ["-mem=AES256", arc("aes256"), t("t1.txt")]),
+      ("aes256_stored", head + ["-mem=AES256", "-mm=Copy", arc("aes256_stored"), t("t1.txt")]),
+    ]
+
+  token_re = r"\$zip\$%d\$\S+\$/zip\$" % (1 if mode == 46100 else 2)
+
+  for label, cmd in builds:
+    # both tools add to an archive that is already there, and 7-Zip refuses to when it is encrypted
+
+    if os.path.exists(arc(label)):
+      os.remove(arc(label))
+
+    rc, out = gen_run(cmd)
+
+    if not os.path.exists(arc(label)) or os.path.getsize(arc(label)) == 0:
+      said = out.decode("utf-8", "replace").strip().splitlines()
+
+      gen_error(mode, "%s failed to create %s: %s" % (cmd[0], arc(label), said[-1] if said else "no output"))
+      continue
+
+    rc, out = gen_run([sys.executable, zip2hashcat, "-q", arc(label)])
+    token   = _john_extract(out, token_re)
+
+    if token is None:
+      gen_error(mode, "zip2hashcat.py produced no hash for %s" % arc(label))
+      continue
+
+    hash_file = os.path.join(zdir, "%d_%s.hash" % (mode, label))
+    write_hash(hash_file, token)
+    archive_crack(args, mode, hash_file, "ZIP-container %s" % label, tmp, fast=False)
+
+
 def gen_pkzip(args, mode, tmp):
   # Real ZipCrypto archives built with InfoZip 'zip', hash read back with John's zip2john.
   zip_bin  = _tool("ZIP_BIN", "zip")
@@ -4685,6 +4785,7 @@ def gen_ssh(args, mode, tmp):
 
 ARCHIVE_GENERATORS = [
   (PKZIP_GEN_MODES,    gen_pkzip),
+  (ZIPWOLF_GEN_MODES,  gen_zip_modes),
   (GPG_GEN_MODES,      gen_gpg),
   (RAR_GEN_MODES,      gen_rar),
   (SEVENZIP_GEN_MODES, gen_sevenzip),
@@ -5881,7 +5982,7 @@ def edge_single(ctx, width, opts, outfile, vectors, tmp):
 
     word_compare = None
 
-    if ctx.mode == 20510:
+    if ctx.mode in (20510, 46410):
       # PKZIP master key reports a plaintext that is not the candidate; the candidate is the word
       # without its first 6 bytes (test_edge.sh).
       word_compare = word
@@ -5890,7 +5991,7 @@ def edge_single(ctx, width, opts, outfile, vectors, tmp):
     if ctx.hexify_plain:
       word_compare = word.hex().encode("ascii")
 
-    if ctx.mode == 20510 and word_len <= 6 and len(word) == 0 and ctx.attack in (3, 6, 7, 12):
+    if ctx.mode in (20510, 46410) and word_len <= 6 and len(word) == 0 and ctx.attack in (3, 6, 7, 12):
       continue
 
     # A -a 4 grammar cannot write an empty word or one holding a tab (test_edge.sh
@@ -6085,7 +6186,7 @@ def edge_multi_group(ctx, width, opts, outfile, vectors, tmp):
 
   cnt_max = hh["cnt_max"]
 
-  if mode == 20510 or ctx.binary:
+  if mode in (20510, 46410) or ctx.binary:
     cnt_max = 1
 
   # A mode that loads at most one hash has no multi run; nor does -a 9 on a mode where every hash is
@@ -6124,7 +6225,7 @@ def edge_multi_group(ctx, width, opts, outfile, vectors, tmp):
 
     word_compare = None
 
-    if mode == 20510:
+    if mode in (20510, 46410):
       word_compare = word
       word         = word[6:]
 
@@ -6151,7 +6252,7 @@ def edge_multi_group(ctx, width, opts, outfile, vectors, tmp):
   if hash_cnt <= 1:
     return 0, 0, False
 
-  use_compare = ctx.hexify_plain or mode == 20510
+  use_compare = ctx.hexify_plain or mode in (20510, 46410)
 
   hash_in = os.path.join(tmp, "edge_m_%d_%s_%d_%d.hashes" % (mode, ctx.ktype, attack, width))
 
@@ -7223,7 +7324,7 @@ def main():
 
       mode_targets = targets
 
-      if mode == 20510:
+      if mode in (20510, 46410):
         if targets == ["multi"]:
           continue
 
