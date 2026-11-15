@@ -225,7 +225,10 @@ DECLSPEC void zlib_memset (PRIVATE_AS u8 *s, const u8 c, int len)
 // does that and also moves the input to global memory, since the PKZIP modes decrypt it as they
 // read it. INFLATE_SMALL_DICT is the same saving for a kernel whose input is already private and
 // needs no decryption.
-#ifdef CRC32_IN_INFLATE
+// INFLATE_INPUT_FILTER names a function of the kernel that every input byte goes through, for a
+// stream that has to be decrypted with something other than the PKZIP cipher. The input is in
+// global memory then as well, and mz_stream.opaque is free to carry the state of that function.
+#if defined CRC32_IN_INFLATE || defined INFLATE_INPUT_FILTER
 #define M_DICT_SIZE 1
 #define MAYBE_GLOBAL GLOBAL_AS
 #else
@@ -544,9 +547,15 @@ DECLSPEC int mz_inflateEnd (mz_streamp pStream);
 DECLSPEC int mz_inflateInit2 (mz_streamp pStream, int window_bits, PRIVATE_AS inflate_state *);
 
 // hashcat-patched/hashcat-specific:
+#ifdef INFLATE_INPUT_FILTER
+DECLSPEC mz_uint8 INFLATE_INPUT_FILTER (const mz_uint8 c, mz_streamp pStream);
+#endif
+
 DECLSPEC mz_uint8 pIn_xor_byte (const mz_uint8 c, mz_streamp pStream)
 {
-  #ifdef CRC32_IN_INFLATE
+  #if defined INFLATE_INPUT_FILTER
+  return INFLATE_INPUT_FILTER (c, pStream);
+  #elif defined CRC32_IN_INFLATE
   mz_uint8 r = c;
 
   u32 key3;
