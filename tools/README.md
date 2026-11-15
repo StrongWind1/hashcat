@@ -61,6 +61,7 @@ end.
 | PKZIP | 17200, 17210, 17220, 17225, 17230 | `zip`, `zip2john` | Skipped. |
 | RAR | 12500, 13000, 23700, 23800 | `rar` 6.x or older, `rar2john` | Only RAR5 (13000) is built, the RAR3 modes are skipped. 23800 has no `test_module_runner.py` oracle at all, so without `-g` it is skipped whatever is installed. |
 | 7-Zip | 11600 | `7z`, `7z2john.pl`, `Compress::Raw::Lzma` | Skipped. |
+| 7-Zip, `$7z$*` lines | 46900 | `7z`. The hash is read with `tools/7z2hashcat.py`, which is in the tree | Skipped. Built stored, with every packer of 7-Zip, with an encrypted header, with two files in one folder, and with BCJ, BCJ2 and ARM64 on a program. |
 | WinZip AES | 13600 | `7z`, `zip2john` | Skipped. |
 | PDF | 10400, 10500, 10700 | `qpdf`, `gs`, `pdf2john.pl` | Skipped. `gs` writes the plain PDF that `qpdf` then encrypts. |
 | OpenSSH key | 22931 | `ssh-keygen`, `ssh2john.py` | Skipped. |
