@@ -71,6 +71,7 @@ Other contributors to hashcat
 * zstd by Yann Collet (@Cyan4973) (loaded at runtime)
 * micro-ecc by Ken MacKay (used as reference for some secp256k1 operations)
 * PPMd var.H by Dmitry Shkarin and Dmitry Subbotin, in Igor Pavlov's 7-Zip implementation (vendored)
+* The LZMA SDK decoders for LZMA, LZMA2, PPMd, BCJ2 and the branch converters by Igor Pavlov (vendored)
 
 # hashcat implements the following algorithms designed by others:
 
