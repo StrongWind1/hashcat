@@ -20,8 +20,9 @@ The lines are the ones ArchiveWolf writes, field for field:
 Which entry is picked, and how much of it goes into the line, follows ArchiveWolf:
 
   * Traditional encryption. The entries are ranked: one whose stream proves the password by
-    decoding (deflate, bzip2, xz) first, then a stored one, whose CRC-32 does, then one that offers
-    nothing but the check byte of its 12 byte header. Within a rank the smaller entry wins. A
+    decoding (deflate, bzip2, xz) first, then a stored one, whose CRC-32 does, then a stored one under
+    four bytes, whose CRC-32 says no more than the bytes do, then one that offers nothing but the
+    check byte of its 12 byte header. Within a rank the smaller entry wins. A
     deflate stream of up to a megabyte goes in whole, a longer one is cut there, and a megabyte
     that still inflates under a wrong key does not happen. A stored entry goes in whole up to
     4 MiB. A line that rests on a CRC-32 or on check bytes alone also carries the header of up to
@@ -86,6 +87,8 @@ ZIP1_MAX_CHECKS = 8
 
 MAX_INLINE_DATA = 4 * 1024 * 1024
 ZIP_DEFLATE_DATA = 1024 * 1024
+# a CRC-32 settles nothing beyond the data it covers until that data is this long
+CRC32_FULL_BYTES = 4
 ZIP_MAGIC_DATA = 32
 
 MAX_DECOMPRESS_SIZE = 10_000_000
@@ -359,17 +362,30 @@ def plan_zipcrypto(entry: Entry) -> tuple[int, int]:
     return 0, PROOF_HEADER_ONLY
 
 
+def stored_proof_bits(stored: int, checks: int) -> int:
+    """How many bits a wrong password has to match on a line with a stored entry and its checks.
+
+    The CRC-32 of fewer than four bytes names those bytes and nothing more, so it is worth eight
+    bits for each of them, and 32 from four bytes on. Every header adds its check byte.
+    """
+    return 8 * min(stored, CRC32_FULL_BYTES) + 8 * checks
+
+
 def order_zipcrypto(entry: Entry) -> tuple[int, int, int]:
     """Rank a ZipCrypto entry, best first."""
     _, proof = plan_zipcrypto(entry)
     # a deflate stream of a few bytes proves little, so it ranks with the checksums
     tiny = proof == PROOF_STREAM and entry.method == METHOD_DEFLATE and entry.packed < 12 + 24
+    # and a stored entry too short for its CRC-32 to count in full ranks below the checksums
+    short = proof == PROOF_CHECKSUM and entry.packed < ZIPCRYPTO_HEADER + CRC32_FULL_BYTES
     if proof == PROOF_STREAM and not tiny:
         rank = 0
+    elif short:
+        rank = 2
     elif proof in (PROOF_STREAM, PROOF_CHECKSUM):
         rank = 1
     else:
-        rank = 2
+        rank = 3
     return rank, entry.packed, 1 if entry.flags & FLAG_DATA_DESCRIPTOR else 0
 
 
@@ -564,6 +580,11 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
             else:
                 why = f"hashcat has no decoder for compression method {entry.method}"
             notes.append(f"weak hash: {name_of(entry)}: {why}, so the line tests only the check byte of {checks} header(s); about one wrong password in 256 passes each")
+        elif proof == PROOF_CHECKSUM and entry.packed - ZIPCRYPTO_HEADER < CRC32_FULL_BYTES and stored_proof_bits(entry.packed - ZIPCRYPTO_HEADER, checks) < 40:
+            stored = entry.packed - ZIPCRYPTO_HEADER
+            bits = stored_proof_bits(stored, checks)
+            odds = {16: "65,536", 24: "16.8 million"}.get(bits, "4.3 billion")
+            notes.append(f"weak hash: {name_of(entry)}: it holds {stored} stored byte(s), and a CRC-32 over fewer than {CRC32_FULL_BYTES} bytes proves no more than the bytes themselves, so the line tests {bits} bits with its {checks} header(s); about one wrong password in {odds} passes")
         elif proof == PROOF_CHECKSUM and checks == 1:
             notes.append(f"note: {name_of(entry)} is stored and the archive has no other entry to test against, so a cracked password is confirmed by 40 bits")
         add(line)
