@@ -228,8 +228,21 @@ KERNEL_FQ KERNEL_FA void m46900_loop (KERN_ATTR_TMPS_HOOKS (seven_zip_tmp_t, sev
    * base
    */
 
+  // A salt goes in front of the password in every round. 7-Zip itself writes none.
+
+  const u32 salt_len = salt_bufs[SALT_POS_HOST].salt_buf[12];
+
+  u32 s[16] = { 0 };
+
+  s[0] = salt_bufs[SALT_POS_HOST].salt_buf[ 8];
+  s[1] = salt_bufs[SALT_POS_HOST].salt_buf[ 9];
+  s[2] = salt_bufs[SALT_POS_HOST].salt_buf[10];
+  s[3] = salt_bufs[SALT_POS_HOST].salt_buf[11];
+
   for (u32 i = 0, j = LOOP_POS; i < LOOP_CNT; i++, j++)
   {
+    if (salt_len > 0) sha256_update_swap (&ctx, s, salt_len);
+
     sha256_update_utf16le_swap (&ctx, w, pw_len);
 
     memcat8c_be (ctx.w0, ctx.w1, ctx.w2, ctx.w3, ctx.len, hc_swap32_S (j), ctx.h);
@@ -280,49 +293,50 @@ KERNEL_FQ KERNEL_FA void m46900_hook23 (KERN_ATTR_TMPS_HOOKS (seven_zip_tmp_t, s
    * context load
    */
 
-  u32 h[8];
+  sha256_ctx_t ctx;
 
-  h[0] = tmps[gid].h[0];
-  h[1] = tmps[gid].h[1];
-  h[2] = tmps[gid].h[2];
-  h[3] = tmps[gid].h[3];
-  h[4] = tmps[gid].h[4];
-  h[5] = tmps[gid].h[5];
-  h[6] = tmps[gid].h[6];
-  h[7] = tmps[gid].h[7];
+  ctx.h[0] = tmps[gid].h[0];
+  ctx.h[1] = tmps[gid].h[1];
+  ctx.h[2] = tmps[gid].h[2];
+  ctx.h[3] = tmps[gid].h[3];
+  ctx.h[4] = tmps[gid].h[4];
+  ctx.h[5] = tmps[gid].h[5];
+  ctx.h[6] = tmps[gid].h[6];
+  ctx.h[7] = tmps[gid].h[7];
 
-  u32 w0[4];
-  u32 w1[4];
-  u32 w2[4];
-  u32 w3[4];
+  ctx.w0[0] = tmps[gid].w0[0];
+  ctx.w0[1] = tmps[gid].w0[1];
+  ctx.w0[2] = tmps[gid].w0[2];
+  ctx.w0[3] = tmps[gid].w0[3];
+  ctx.w1[0] = tmps[gid].w1[0];
+  ctx.w1[1] = tmps[gid].w1[1];
+  ctx.w1[2] = tmps[gid].w1[2];
+  ctx.w1[3] = tmps[gid].w1[3];
+  ctx.w2[0] = tmps[gid].w2[0];
+  ctx.w2[1] = tmps[gid].w2[1];
+  ctx.w2[2] = tmps[gid].w2[2];
+  ctx.w2[3] = tmps[gid].w2[3];
+  ctx.w3[0] = tmps[gid].w3[0];
+  ctx.w3[1] = tmps[gid].w3[1];
+  ctx.w3[2] = tmps[gid].w3[2];
+  ctx.w3[3] = tmps[gid].w3[3];
 
-  w0[0] = 0x80000000;
-  w0[1] = 0;
-  w0[2] = 0;
-  w0[3] = 0;
-  w1[0] = 0;
-  w1[1] = 0;
-  w1[2] = 0;
-  w1[3] = 0;
-  w2[0] = 0;
-  w2[1] = 0;
-  w2[2] = 0;
-  w2[3] = 0;
-  w3[0] = 0;
-  w3[1] = 0;
-  w3[2] = 0;
-  w3[3] = tmps[gid].len * 8;
+  ctx.len = tmps[gid].len;
 
-  sha256_transform (w0, w1, w2, w3, h);
+  // With 2^19 rounds what was hashed is a whole number of blocks and nothing is left in the
+  // buffer. With a handful of rounds, or a salt of an odd length, something is, so the hash is
+  // finished the regular way.
 
-  hooks[gid].ukey[0] = hc_swap32_S (h[0]);
-  hooks[gid].ukey[1] = hc_swap32_S (h[1]);
-  hooks[gid].ukey[2] = hc_swap32_S (h[2]);
-  hooks[gid].ukey[3] = hc_swap32_S (h[3]);
-  hooks[gid].ukey[4] = hc_swap32_S (h[4]);
-  hooks[gid].ukey[5] = hc_swap32_S (h[5]);
-  hooks[gid].ukey[6] = hc_swap32_S (h[6]);
-  hooks[gid].ukey[7] = hc_swap32_S (h[7]);
+  sha256_final (&ctx);
+
+  hooks[gid].ukey[0] = hc_swap32_S (ctx.h[0]);
+  hooks[gid].ukey[1] = hc_swap32_S (ctx.h[1]);
+  hooks[gid].ukey[2] = hc_swap32_S (ctx.h[2]);
+  hooks[gid].ukey[3] = hc_swap32_S (ctx.h[3]);
+  hooks[gid].ukey[4] = hc_swap32_S (ctx.h[4]);
+  hooks[gid].ukey[5] = hc_swap32_S (ctx.h[5]);
+  hooks[gid].ukey[6] = hc_swap32_S (ctx.h[6]);
+  hooks[gid].ukey[7] = hc_swap32_S (ctx.h[7]);
 }
 
 KERNEL_FQ KERNEL_FA void m46900_comp (KERN_ATTR_TMPS_HOOKS (seven_zip_tmp_t, seven_zip_hook_t))

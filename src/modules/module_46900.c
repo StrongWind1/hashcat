@@ -13,9 +13,43 @@
 #include "memory.h"
 #include "emu_inc_cipher_aes.h"
 #include "cpu_crc32.h"
-#include "ext_lzma.h"
-#include "ext_zlib.h"
 #include "ext_zstd.h"
+
+#include <inttypes.h>
+#include <stdarg.h>
+
+// 7-Zip: 2^power rounds of SHA-256 over the password give an AES-256 key, and the data is
+// encrypted in CBC mode after it has been packed. The archive stores nothing that says whether a
+// password is right, so a candidate is tested on what it decrypts.
+//
+//   $7z$*power*salt*crc32*crc_len*join*N*stream_1*...*stream_N$/7z$
+//
+//   stream  =  iv*packed*unpacked*chain*data
+//
+//   power     NumCyclesPower, decimal
+//   salt      hex, usually empty
+//   crc32     CRC-32 of the first crc_len bytes the folder unpacks to, 8 hex digits, or empty,
+//             or the word header
+//   crc_len   hex
+//   join      the coders that run after the streams have been joined, empty for one stream
+//   N         number of packed streams, 1, or 4 for a folder that uses BCJ2
+//   iv        initialisation vector of the stream, hex, as many bytes as the archive stores
+//   packed    size of the encrypted stream, hex. A stream of BCJ2 can be empty
+//   unpacked  size of what it decrypts to, hex: the rest of the last cipher block is padding
+//   chain     the coders that run on this stream after decryption, in that order
+//   data      the encrypted stream, or the start of it
+//
+// A chain is a list of coders separated by commas. A coder is id/properties/size, the id and the
+// properties in hex as the archive stores them and the size of its output in hex, 0 when the line
+// does not know it.
+//
+// A line with a CRC-32 is tested against it. A line without one is tested on its stream: all of
+// it has to unpack to the size the line names and end there, or, when the line holds only the
+// start of a stream, that start has to unpack without an error. A line that says header is the
+// encrypted header of an archive that stores no CRC-32 for it: what it unpacks to has to be the
+// header of a 7z archive, every field of it.
+//
+// The lines of mode 11600 are read as well and are written back in the form above.
 
 static const u32   ATTACK_EXEC    = ATTACK_EXEC_OUTSIDE_KERNEL;
 static const u32   DGST_POS0      = 0;
@@ -34,17 +68,51 @@ static const u64   OPTS_TYPE      = OPTS_TYPE_STOCK_MODULE
 static const u64   KERN_BITS      = KERN_BIT_HOOK23;
 static const u32   SALT_TYPE      = SALT_TYPE_EMBEDDED;
 static const char *ST_PASS        = "hashcat";
-static const char *ST_HASH        = "$7z$0$14$0$$11$33363437353138333138300000000000$2365089182$16$12$d00321533b483f54a523f624a5f63269";
+static const char *ST_HASH        = "$7z$*14**8cf8659e*c**1*3336343735313833313830*10*c**d00321533b483f54a523f624a5f63269$/7z$";
+
+#define MODULE_OWN_KERN_BITS
+#define MODULE_OWN_LENGTH_SORT
 
 #include "hooks_common.c"
 
-static u64         module_kern_bits      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return KERN_BITS;       }
-static bool        module_length_sort    (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return LENGTH_SORT;     }
+#include "sevenzip_decode.c"
+
+static u64  module_kern_bits   (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return KERN_BITS;   }
+static bool module_length_sort (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return LENGTH_SORT; }
 
 static const char *module_usage_notice (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
 {
-  return "Accepts both old $7z$ format (from 7z2hashcat) and new $7z$ format (from ArchiveWolf)";
+  return "Use ArchiveWolf or tools/7z2hashcat.py to extract the hash from a 7z archive. Lines written for mode 11600 are read as well.";
 }
+
+#define SZ_STREAMS_MAX 4
+
+// What a line is tested on: its stream alone, a CRC-32, or being the header of an archive.
+
+#define SZ_CHECK_STREAM 0
+#define SZ_CHECK_CRC    1
+#define SZ_CHECK_HEADER 2
+
+#define SZ_CHAIN_MAX   8
+#define SZ_PROPS_MAX   16
+
+// A line holds at most this much data, which is what fits the buffer hashcat reads a line into.
+
+#define SZ_DATA_MAX 0x7ff000u
+
+// A candidate is unpacked to at most this many bytes when a CRC-32 is to be tested, and to this
+// many when only the start of a stream is.
+
+#define SZ_OUT_MAX   (64u * 1024 * 1024)
+#define SZ_START_MAX (16u * 1024 * 1024)
+
+// How much of an LZMA2 or Deflate stream has to be there for its start to be a test.
+
+#define SZ_START_MIN (1024u * 1024)
+
+// A branch converter looks this far past the bytes it has been asked for.
+
+#define SZ_LOOKAHEAD 16
 
 typedef struct seven_zip_tmp
 {
@@ -67,63 +135,78 @@ typedef struct seven_zip_hook
 
 } seven_zip_hook_t;
 
+typedef struct sz_coder
+{
+  u32 kind;
+  u32 props_len;
+  u8  props[SZ_PROPS_MAX];
+  u64 size;
+
+} sz_coder_t;
+
+typedef struct sz_stream
+{
+  u32 iv_len;
+  u8  iv[16];
+
+  u64 packed;
+  u64 unpacked;
+
+  u32        chain_cnt;
+  sz_coder_t chain[SZ_CHAIN_MAX];
+
+  u32 data_len;
+  u8 *data;
+
+} sz_stream_t;
+
 typedef struct seven_zip_hook_salt
 {
-  u32 iv_buf[4];
-  u32 iv_len;
+  u32 power;
 
-  u32 salt_buf[4];
   u32 salt_len;
+  u8  salt[16];
 
+  u32 has_crc; // one of SZ_CHECK_*
   u32 crc;
-  u32 crc_len;
+  u64 crc_len;
 
-  u8  data_type;
+  u32        join_cnt;
+  sz_coder_t join[SZ_CHAIN_MAX];
 
-  u32 data_buf[0x200000];
-  u32 data_len;
+  u32         stream_cnt;
+  sz_stream_t streams[SZ_STREAMS_MAX];
 
-  u32 unpack_size;
+  // a line of mode 11600 does not say how large the output of a coder is, nor which of the two
+  // Deflate coders packed it
 
-  char coder_attributes[5 + 1];
-  u8   coder_attributes_len;
-
-  u8   filter_attributes[4];
-  u8   filter_attributes_len;
-
-  int aes_len; // pre-computed length of the maximal (subset of) data we need for AES-CBC
+  u32 legacy;
 
 } seven_zip_hook_salt_t;
 
+// The buffers one hook thread keeps between candidates, allocated on first use.
+
+typedef struct sz_buf
+{
+  u8    *ptr;
+  size_t cap;
+
+} sz_buf_t;
+
 typedef struct seven_zip_hook_extra
 {
-  void **aes;
-  void **unp;
-  void **flt;
+  sz_buf_t plain[SZ_STREAMS_MAX];
+  sz_buf_t stage[SZ_STREAMS_MAX];
+  sz_buf_t joined;
+  sz_buf_t spare;
+
+  sz_mem_t mem;
 
 } seven_zip_hook_extra_t;
 
-static const char *SIGNATURE_SEVEN_ZIP = "$7z$";
-
-// 7z2hashcat writes the filter that ran before the compressor into the upper 4 bits of the data type.
-// Only the filters liblzma decodes are mapped. BCJ2 (2) splits the data into four streams and 7zAES
-// (10) is the encryption itself, so neither can be decoded here.
-
-static u64 seven_zip_filter_id (const u32 filter)
-{
-  switch (filter)
-  {
-    case 1: return HC_LZMA_FILTER_X86;
-    case 3: return HC_LZMA_FILTER_POWERPC;
-    case 4: return HC_LZMA_FILTER_IA64;
-    case 5: return HC_LZMA_FILTER_ARM;
-    case 6: return HC_LZMA_FILTER_ARMTHUMB;
-    case 7: return HC_LZMA_FILTER_SPARC;
-    case 9: return HC_LZMA_FILTER_DELTA;
-  }
-
-  return HC_LZMA_VLI_UNKNOWN;
-}
+static const char *SIGNATURE_SEVEN_ZIP      = "$7z$";
+static const char *SIGNATURE_SEVEN_ZIP_NEW  = "$7z$*";
+static const char *SIGNATURE_SEVEN_ZIP_STOP = "$/7z$";
 
 static char *module_jit_build_options (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra, MAYBE_UNUSED const hashes_t *hashes, MAYBE_UNUSED const hc_device_param_t *device_param)
 {
@@ -152,284 +235,494 @@ static char *module_jit_build_options (MAYBE_UNUSED const hashconfig_t *hashconf
 
 static bool module_hook_extra_param_init (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx, MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra, MAYBE_UNUSED const folder_config_t *folder_config, MAYBE_UNUSED const backend_ctx_t *backend_ctx, void *hook_extra_param)
 {
-  seven_zip_hook_extra_t *seven_zip_hook_extra = (seven_zip_hook_extra_t *) hook_extra_param;
-
-  #define AESSIZE 8 * 1024 * 1024
-  #define UNPSIZE 9999999
-
-  seven_zip_hook_extra->aes = hccalloc (backend_ctx->backend_devices_cnt, sizeof (void *));
-
-  if (seven_zip_hook_extra->aes == NULL) return false;
-
-  seven_zip_hook_extra->unp = hccalloc (backend_ctx->backend_devices_cnt, sizeof (void *));
-
-  if (seven_zip_hook_extra->unp == NULL) return false;
-
-  seven_zip_hook_extra->flt = hccalloc (backend_ctx->backend_devices_cnt, sizeof (void *));
-
-  if (seven_zip_hook_extra->flt == NULL) return false;
-
-  for (int backend_devices_idx = 0; backend_devices_idx < backend_ctx->backend_devices_cnt; backend_devices_idx++)
-  {
-    hc_device_param_t *device_param = &backend_ctx->devices_param[backend_devices_idx];
-
-    if (device_param->skipped == true) continue;
-
-    seven_zip_hook_extra->aes[backend_devices_idx] = hcmalloc (AESSIZE);
-
-    if (seven_zip_hook_extra->aes[backend_devices_idx] == NULL) return false;
-
-    seven_zip_hook_extra->unp[backend_devices_idx] = hcmalloc (UNPSIZE);
-
-    if (seven_zip_hook_extra->unp[backend_devices_idx] == NULL) return false;
-
-    seven_zip_hook_extra->flt[backend_devices_idx] = hcmalloc (UNPSIZE);
-
-    if (seven_zip_hook_extra->flt[backend_devices_idx] == NULL) return false;
-  }
+  memset (hook_extra_param, 0, sizeof (seven_zip_hook_extra_t));
 
   return true;
 }
 
 static bool module_hook_extra_param_term (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx, MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra, MAYBE_UNUSED const folder_config_t *folder_config, MAYBE_UNUSED const backend_ctx_t *backend_ctx, void *hook_extra_param)
 {
-  seven_zip_hook_extra_t *seven_zip_hook_extra = (seven_zip_hook_extra_t *) hook_extra_param;
+  seven_zip_hook_extra_t *extra = (seven_zip_hook_extra_t *) hook_extra_param;
 
-  for (int backend_devices_idx = 0; backend_devices_idx < backend_ctx->backend_devices_cnt; backend_devices_idx++)
+  for (u32 i = 0; i < SZ_STREAMS_MAX; i++)
   {
-    hc_device_param_t *device_param = &backend_ctx->devices_param[backend_devices_idx];
-
-    if (device_param->skipped == true) continue;
-
-    hcfree (seven_zip_hook_extra->aes[backend_devices_idx]);
-    hcfree (seven_zip_hook_extra->unp[backend_devices_idx]);
-    hcfree (seven_zip_hook_extra->flt[backend_devices_idx]);
+    free (extra->plain[i].ptr);
+    free (extra->stage[i].ptr);
   }
 
-  hcfree (seven_zip_hook_extra->aes);
-  hcfree (seven_zip_hook_extra->unp);
-  hcfree (seven_zip_hook_extra->flt);
+  free (extra->joined.ptr);
+  free (extra->spare.ptr);
+
+  sz_mem_free (&extra->mem);
+
+  memset (extra, 0, sizeof (seven_zip_hook_extra_t));
 
   return true;
 }
 
-// A filter is decoded after the compressor rather than in one chain with it. An LZMA1 stream in a
-// 7-Zip archive carries no end marker, and a branch converter behind it in a chain holds back its
-// last bytes, waiting to learn whether an instruction continues past them. Decoding the filter on
-// its own says where the data ends.
-//
-// Where that is depends on the folder. When the first file is the whole folder, the data ends after
-// crc_len bytes. When another file follows, an instruction can cross into it, and the filter needs
-// the bytes after crc_len to convert it the way the encoder did. Both are tried, the second with up
-// to 16 more bytes, the length of an IA64 bundle, the longest unit any of the filters converts.
-
-#define SEVEN_ZIP_FILTER_LOOKAHEAD 16
-
-static bool seven_zip_filtered_crc (const seven_zip_hook_salt_t *seven_zip, const u32 coder, const u64 filter, const u8 *compressed_data, size_t compressed_data_len, u8 *decompressed_data, u8 *filtered_data)
+static u8 *sz_buf_get (sz_buf_t *buf, const size_t size)
 {
-  const u32 crc_len = seven_zip->crc_len;
+  if ((buf->ptr != NULL) && (buf->cap >= size)) return buf->ptr;
 
-  size_t decompressed_data_len = MIN (crc_len + SEVEN_ZIP_FILTER_LOOKAHEAD, UNPSIZE);
+  free (buf->ptr);
 
-  // a stream that ends before that answers false, which is expected here, so only the length counts
+  // a few bytes more, because the decoders of 7-Zip read and write in words
 
-  if (coder == 1)
-  {
-    hc_lzma1_decompress (compressed_data, &compressed_data_len, decompressed_data, &decompressed_data_len, seven_zip->coder_attributes);
-  }
-  else
-  {
-    hc_lzma2_decompress (compressed_data, &compressed_data_len, decompressed_data, &decompressed_data_len, seven_zip->coder_attributes);
-  }
+  buf->ptr = (u8 *) malloc (size + 64);
+  buf->cap = (buf->ptr == NULL) ? 0 : size;
 
-  if (decompressed_data_len < crc_len) return false;
-
-  if (hc_lzma_filter_decode (filter, seven_zip->filter_attributes, seven_zip->filter_attributes_len, decompressed_data, crc_len, filtered_data) == true)
-  {
-    if (cpu_crc32_buffer (filtered_data, crc_len) == seven_zip->crc) return true;
-  }
-
-  if (decompressed_data_len == crc_len) return false;
-
-  if (hc_lzma_filter_decode (filter, seven_zip->filter_attributes, seven_zip->filter_attributes_len, decompressed_data, decompressed_data_len, filtered_data) == false) return false;
-
-  const bool match = (cpu_crc32_buffer (filtered_data, crc_len) == seven_zip->crc);
-
-  return match;
+  return buf->ptr;
 }
 
-static void module_hook23 (hc_device_param_t *device_param, MAYBE_UNUSED const void *hook_extra_param, const void *hook_salts_buf, const u32 salt_pos, const u64 pw_pos)
+// AES-256 in CBC mode, one block or many. The cipher takes its words as they lie in memory.
+
+static void sz_cbc_decrypt (const u32 *rdk, const u8 *iv, const u8 *in, u8 *out, const size_t len)
+{
+  u32 prev[4];
+
+  memcpy (prev, iv, 16);
+
+  for (size_t pos = 0; pos + 16 <= len; pos += 16)
+  {
+    u32 data[4];
+    u32 text[4];
+
+    memcpy (data, in + pos, 16);
+
+    aes256_decrypt (rdk, data, text, (u32 *) td0, (u32 *) td1, (u32 *) td2, (u32 *) td3, (u32 *) td4);
+
+    text[0] ^= prev[0];
+    text[1] ^= prev[1];
+    text[2] ^= prev[2];
+    text[3] ^= prev[3];
+
+    prev[0] = data[0];
+    prev[1] = data[1];
+    prev[2] = data[2];
+    prev[3] = data[3];
+
+    memcpy (out + pos, text, 16);
+  }
+}
+
+static u32 sz_first_packer (const sz_stream_t *stream)
+{
+  if (stream->chain_cnt == 0) return SZ_KIND_NONE;
+
+  return (SZ_KIND_IS_PACKER (stream->chain[0].kind)) ? stream->chain[0].kind : SZ_KIND_NONE;
+}
+
+static bool sz_has_filter (const seven_zip_hook_salt_t *seven_zip)
+{
+  for (u32 i = 0; i < seven_zip->join_cnt; i++)
+  {
+    if (SZ_KIND_IS_FILTER (seven_zip->join[i].kind)) return true;
+  }
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    for (u32 i = 0; i < seven_zip->streams[s].chain_cnt; i++)
+    {
+      if (SZ_KIND_IS_FILTER (seven_zip->streams[s].chain[i].kind)) return true;
+    }
+  }
+
+  return false;
+}
+
+// Size of what the folder unpacks to, 0 when the line does not say.
+
+static u64 sz_final_size (const seven_zip_hook_salt_t *seven_zip)
+{
+  if (seven_zip->join_cnt > 0) return seven_zip->join[seven_zip->join_cnt - 1].size;
+
+  const sz_stream_t *stream = &seven_zip->streams[0];
+
+  if (stream->chain_cnt > 0) return stream->chain[stream->chain_cnt - 1].size;
+
+  return stream->unpacked;
+}
+
+// The test that costs one cipher block: the first block has to look like the start of the stream
+// the line says it is. What is left of the last block is not looked at. 7-Zip fills it with zeros,
+// but nothing reads it back, and other writers fill it with something else.
+
+static bool sz_cheap_tests (const u32 *rdk, const sz_stream_t *stream)
+{
+  const u32 kind = sz_first_packer (stream);
+
+  if ((kind != SZ_KIND_NONE) && (stream->unpacked >= 16))
+  {
+    u8 iv[16] = { 0 };
+
+    memcpy (iv, stream->iv, stream->iv_len);
+
+    u8 text[16];
+
+    sz_cbc_decrypt (rdk, iv, stream->data, text, 16);
+
+    if (sz_start_fits (kind, text) == false) return false;
+  }
+
+  return true;
+}
+
+// Run the coders of one stream over what it decrypted to. A packer writes into a buffer of its
+// own, a filter works in place. want is how much of the last coder's output is needed. Returns how
+// the last packer stopped, and where the result is.
+
+static int sz_run_chain (seven_zip_hook_extra_t *extra, const u32 s, const sz_coder_t *chain, const u32 chain_cnt, u8 *in, size_t in_len, const bool whole, const size_t want, u8 **out, size_t *out_len)
+{
+  u8    *cur     = in;
+  size_t cur_len = in_len;
+
+  int rc = SZ_DONE;
+
+  bool flip = false;
+
+  // a filter that comes first would change what was decrypted, which a second try starts from
+
+  if ((chain_cnt > 0) && (SZ_KIND_IS_FILTER (chain[0].kind)))
+  {
+    u8 *copy = sz_buf_get (&extra->stage[s], in_len);
+
+    if (copy == NULL) return SZ_BAD;
+
+    memcpy (copy, in, in_len);
+
+    cur  = copy;
+    flip = true;
+  }
+
+  for (u32 i = 0; i < chain_cnt; i++)
+  {
+    const sz_coder_t *coder = &chain[i];
+
+    if (SZ_KIND_IS_FILTER (coder->kind))
+    {
+      if (sz_filter (coder->kind, coder->props, coder->props_len, cur, cur_len) == false) return SZ_BAD;
+
+      continue;
+    }
+
+    // a packer that feeds another one has to give all it has
+
+    bool feeds = false;
+
+    for (u32 k = i + 1; k < chain_cnt; k++)
+    {
+      if (SZ_KIND_IS_PACKER (chain[k].kind)) feeds = true;
+    }
+
+    size_t need = want;
+
+    if (feeds == true)
+    {
+      if ((coder->size == 0) || (coder->size > SZ_OUT_MAX)) return SZ_BAD;
+
+      need = (size_t) coder->size;
+    }
+
+    const bool to_end = (whole == true) && (coder->size != 0) && (need == coder->size) && (rc == SZ_DONE);
+
+    sz_buf_t *buf = (flip == false) ? &extra->stage[s] : &extra->spare;
+
+    flip = !flip;
+
+    u8 *dst = sz_buf_get (buf, need);
+
+    if (dst == NULL) return SZ_BAD;
+
+    size_t produced = 0;
+    size_t consumed = 0;
+
+    rc = sz_unpack (&extra->mem, coder->kind, coder->props, coder->props_len, cur, cur_len, dst, need, to_end, &produced, &consumed);
+
+    // a stream of 7-Zip's own range coders ends with its last byte
+
+    if ((rc == SZ_DONE) && (to_end == true) && (consumed != cur_len))
+    {
+      if ((coder->kind == SZ_KIND_LZMA) || (coder->kind == SZ_KIND_LZMA2)) rc = SZ_BAD;
+    }
+
+    cur     = dst;
+    cur_len = produced;
+
+    if (rc == SZ_BAD) return SZ_BAD;
+
+    if ((feeds == true) && (rc != SZ_DONE)) return SZ_BAD;
+  }
+
+  *out     = cur;
+  *out_len = cur_len;
+
+  return rc;
+}
+
+// A wrong key that got past the first block almost never gets far: the packers here give up
+// within a few bytes of a stream that is not theirs. So the start is decrypted and unpacked on
+// its own before the whole stream is, which for a long stream is most of the work.
+
+#define SZ_PROBE_IN  4096
+#define SZ_PROBE_OUT 65536
+
+static bool sz_probe (seven_zip_hook_extra_t *extra, const u32 *rdk, const sz_stream_t *stream, const u32 s, const u32 kind)
+{
+  if (stream->data_len <= SZ_PROBE_IN * 4) return true;
+
+  u8 *plain = sz_buf_get (&extra->plain[s], stream->data_len);
+  u8 *out   = sz_buf_get (&extra->spare, SZ_PROBE_OUT);
+
+  if ((plain == NULL) || (out == NULL)) return false;
+
+  u8 iv[16] = { 0 };
+
+  memcpy (iv, stream->iv, stream->iv_len);
+
+  sz_cbc_decrypt (rdk, iv, stream->data, plain, SZ_PROBE_IN);
+
+  size_t produced = 0;
+  size_t consumed = 0;
+
+  const sz_coder_t *coder = &stream->chain[0];
+
+  const int rc = sz_unpack (&extra->mem, kind, coder->props, coder->props_len, plain, SZ_PROBE_IN, out, SZ_PROBE_OUT, false, &produced, &consumed);
+
+  return (rc != SZ_BAD);
+}
+
+static bool sz_crc_matches (const seven_zip_hook_salt_t *seven_zip, const u8 *data, const size_t len)
+{
+  if (len < seven_zip->crc_len) return false;
+
+  return (cpu_crc32_buffer (data, (size_t) seven_zip->crc_len) == seven_zip->crc);
+}
+
+// Apply the filters that run after BCJ2 and compare.
+
+static bool sz_finish (const seven_zip_hook_salt_t *seven_zip, const sz_coder_t *tail, const u32 tail_cnt, u8 *data, const size_t len)
+{
+  for (u32 i = 0; i < tail_cnt; i++)
+  {
+    if (sz_filter (tail[i].kind, tail[i].props, tail[i].props_len, data, len) == false) return false;
+  }
+
+  return sz_crc_matches (seven_zip, data, len);
+}
+
+static bool sz_test_candidate (seven_zip_hook_extra_t *extra, const seven_zip_hook_salt_t *seven_zip, const u32 *rdk, const bool deflate64)
+{
+  // nothing is decrypted in full before every stream has passed what costs one block
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    if (seven_zip->streams[s].data_len == 0) continue;
+
+    if (sz_cheap_tests (rdk, &seven_zip->streams[s]) == false) return false;
+  }
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[s];
+
+    if (stream->data_len == 0) continue;
+
+    u32 kind = sz_first_packer (stream);
+
+    if ((deflate64 == true) && (kind == SZ_KIND_DEFLATE)) kind = SZ_KIND_DEFLATE64;
+
+    // the library for Zstandard and the PPMd model are not worth starting twice
+
+    if ((kind != SZ_KIND_NONE) && (kind != SZ_KIND_ZSTD) && (kind != SZ_KIND_PPMD))
+    {
+      if (sz_probe (extra, rdk, stream, s, kind) == false) return false;
+    }
+  }
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[s];
+
+    u8 *plain = sz_buf_get (&extra->plain[s], stream->data_len);
+
+    if (plain == NULL) return false;
+
+    u8 iv[16] = { 0 };
+
+    memcpy (iv, stream->iv, stream->iv_len);
+
+    sz_cbc_decrypt (rdk, iv, stream->data, plain, stream->data_len);
+  }
+
+  if (seven_zip->has_crc == SZ_CHECK_HEADER)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[0];
+
+    u8    *out     = NULL;
+    size_t out_len = 0;
+
+    const u64 size = sz_final_size (seven_zip);
+
+    const int rc = sz_run_chain (extra, 0, stream->chain, stream->chain_cnt, extra->plain[0].ptr, (size_t) stream->unpacked, true, (size_t) size, &out, &out_len);
+
+    if ((rc != SZ_DONE) || (out_len != size)) return false;
+
+    return sz_header_valid (out, out_len);
+  }
+
+  const u64  final  = sz_final_size (seven_zip);
+  const bool filter = sz_has_filter (seven_zip);
+
+  if (seven_zip->stream_cnt == 1)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[0];
+
+    const bool   whole  = (stream->data_len == stream->packed);
+    const size_t in_len = (whole == true) ? (size_t) stream->unpacked : stream->data_len;
+
+    sz_coder_t chain[SZ_CHAIN_MAX];
+
+    memcpy (chain, stream->chain, sizeof (chain));
+
+    if ((deflate64 == true) && (chain[0].kind == SZ_KIND_DEFLATE)) chain[0].kind = SZ_KIND_DEFLATE64;
+
+    u8    *out     = NULL;
+    size_t out_len = 0;
+
+    if (seven_zip->has_crc == SZ_CHECK_STREAM)
+    {
+      // no checksum: the stream itself has to be right
+
+      // all of it is here and it is not too large: it has to unpack to its size and end there
+
+      if ((whole == true) && (final != 0) && (final <= SZ_OUT_MAX))
+      {
+        const int rc = sz_run_chain (extra, 0, chain, stream->chain_cnt, extra->plain[0].ptr, in_len, true, (size_t) final, &out, &out_len);
+
+        return (rc == SZ_DONE) && (out_len == final);
+      }
+
+      // otherwise its start has to unpack without an error, up to where the line or the buffer ends
+
+      size_t want = SZ_START_MAX;
+
+      if ((final != 0) && (final < want)) want = (size_t) final;
+
+      // only the packer is run: a filter has nothing to say here
+
+      const int rc = sz_run_chain (extra, 0, chain, 1, extra->plain[0].ptr, in_len, false, want, &out, &out_len);
+
+      return (rc == SZ_SHORT) || (rc == SZ_DONE);
+    }
+
+    // with a filter, first try with the bytes it may look ahead at, then without them: which of
+    // the two is right depends on whether the first file is all the folder holds
+
+    size_t want = (size_t) seven_zip->crc_len;
+
+    if (filter == true)
+    {
+      want += SZ_LOOKAHEAD;
+
+      if ((final != 0) && (want > final)) want = (size_t) final;
+    }
+
+    const int rc = sz_run_chain (extra, 0, chain, stream->chain_cnt, extra->plain[0].ptr, in_len, whole, want, &out, &out_len);
+
+    if (rc == SZ_BAD) return false;
+
+    if (sz_crc_matches (seven_zip, out, out_len) == true) return true;
+
+    if ((filter == false) || (out_len <= seven_zip->crc_len)) return false;
+
+    const int rc2 = sz_run_chain (extra, 0, chain, stream->chain_cnt, extra->plain[0].ptr, in_len, whole, (size_t) seven_zip->crc_len, &out, &out_len);
+
+    if (rc2 == SZ_BAD) return false;
+
+    return sz_crc_matches (seven_zip, out, out_len);
+  }
+
+  // four streams: each is unpacked in full, then BCJ2 puts them together
+
+  const u8 *bufs[SZ_STREAMS_MAX];
+  size_t    lens[SZ_STREAMS_MAX];
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[s];
+
+    u8    *out     = extra->plain[s].ptr;
+    size_t out_len = (size_t) stream->unpacked;
+
+    if (stream->chain_cnt > 0)
+    {
+      const u64 size = stream->chain[stream->chain_cnt - 1].size;
+
+      if (size > SZ_OUT_MAX) return false;
+
+      const int rc = sz_run_chain (extra, s, stream->chain, stream->chain_cnt, extra->plain[s].ptr, (size_t) stream->unpacked, true, (size_t) size, &out, &out_len);
+
+      // a stream that unpacks to nothing ends before it has given anything
+
+      if ((rc != SZ_DONE) && !((rc == SZ_END) && (size == 0))) return false;
+
+      if (out_len != size) return false;
+    }
+
+    bufs[s] = out;
+    lens[s] = out_len;
+  }
+
+  size_t want = (size_t) seven_zip->crc_len;
+
+  if ((seven_zip->join_cnt > 1) && (want < final))
+  {
+    want += SZ_LOOKAHEAD;
+
+    if (want > final) want = (size_t) final;
+  }
+
+  u8 *joined = sz_buf_get (&extra->joined, want);
+
+  if (joined == NULL) return false;
+
+  size_t produced = 0;
+
+  const int rc = sz_bcj2 (bufs, lens, joined, want, (want == seven_zip->join[0].size), &produced);
+
+  if (rc != SZ_DONE) return false;
+
+  return sz_finish (seven_zip, seven_zip->join + 1, seven_zip->join_cnt - 1, joined, produced);
+}
+
+static void module_hook23 (hc_device_param_t *device_param, const void *hook_extra_param, const void *hook_salts_buf, const u32 salt_pos, const u64 pw_pos)
 {
   seven_zip_hook_t *hook_items = (seven_zip_hook_t *) device_param->hooks_buf;
+  seven_zip_hook_t *hook_item  = &hook_items[pw_pos];
 
   const seven_zip_hook_salt_t *seven_zips = (const seven_zip_hook_salt_t *) hook_salts_buf;
   const seven_zip_hook_salt_t *seven_zip  = &seven_zips[salt_pos];
 
-  const seven_zip_hook_extra_t *seven_zip_hook_extra = (const seven_zip_hook_extra_t *) hook_extra_param;
+  // The interface hands this over as const, but it belongs to this module and this hook thread.
 
-  u8   data_type   = seven_zip->data_type;
-  const u32 *data_buf    = seven_zip->data_buf;
-  u32  unpack_size = seven_zip->unpack_size;
-
-  // this hook data needs to be updated (the "hook_success" variable):
-
-  seven_zip_hook_t *hook_item = &hook_items[pw_pos];
-
-  const u32 *ukey = (const u32 *) hook_item->ukey;
-
-  // init AES
+  seven_zip_hook_extra_t *extra = (seven_zip_hook_extra_t *) hook_extra_param;
 
   AES_KEY aes_key;
 
   memset (&aes_key, 0, sizeof (aes_key));
 
-  aes256_set_decrypt_key (aes_key.rdk, ukey, (u32 *) te0, (u32 *) te1, (u32 *) te2, (u32 *) te3, (u32 *) td0, (u32 *) td1, (u32 *) td2, (u32 *) td3);
+  aes256_set_decrypt_key (aes_key.rdk, hook_item->ukey, (u32 *) te0, (u32 *) te1, (u32 *) te2, (u32 *) te3, (u32 *) td0, (u32 *) td1, (u32 *) td2, (u32 *) td3);
 
-  int aes_len = seven_zip->aes_len;
+  bool match = sz_test_candidate (extra, seven_zip, aes_key.rdk, false);
 
-  u32 data[4];
-  u32 out[4];
-  u32 iv[4];
+  // a line of mode 11600 has one number for both Deflate coders
 
-  iv[0] = seven_zip->iv_buf[0];
-  iv[1] = seven_zip->iv_buf[1];
-  iv[2] = seven_zip->iv_buf[2];
-  iv[3] = seven_zip->iv_buf[3];
-
-  u32 *out_full = (u32 *) seven_zip_hook_extra->aes[device_param->device_id];
-
-  // if aes_len > 16 we need to loop
-
-  int i = 0;
-  int j = 0;
-
-  for (i = 0, j = 0; i < aes_len - 16; i += 16, j += 4)
+  if ((match == false) && (seven_zip->legacy == 1) && (seven_zip->streams[0].chain_cnt > 0) && (seven_zip->streams[0].chain[0].kind == SZ_KIND_DEFLATE))
   {
-    data[0] = data_buf[j + 0];
-    data[1] = data_buf[j + 1];
-    data[2] = data_buf[j + 2];
-    data[3] = data_buf[j + 3];
-
-    aes256_decrypt (aes_key.rdk, data, out, (u32 *) td0, (u32 *) td1, (u32 *) td2, (u32 *) td3, (u32 *) td4);
-
-    out[0] ^= iv[0];
-    out[1] ^= iv[1];
-    out[2] ^= iv[2];
-    out[3] ^= iv[3];
-
-    iv[0] = data[0];
-    iv[1] = data[1];
-    iv[2] = data[2];
-    iv[3] = data[3];
-
-    out_full[j + 0] = out[0];
-    out_full[j + 1] = out[1];
-    out_full[j + 2] = out[2];
-    out_full[j + 3] = out[3];
+    match = sz_test_candidate (extra, seven_zip, aes_key.rdk, true);
   }
 
-  // we need to run it at least once:
-
-  data[0] = data_buf[j + 0];
-  data[1] = data_buf[j + 1];
-  data[2] = data_buf[j + 2];
-  data[3] = data_buf[j + 3];
-
-  aes256_decrypt (aes_key.rdk, data, out, (u32 *) td0, (u32 *) td1, (u32 *) td2, (u32 *) td3, (u32 *) td4);
-
-  out[0] ^= iv[0];
-  out[1] ^= iv[1];
-  out[2] ^= iv[2];
-  out[3] ^= iv[3];
-
-  out_full[j + 0] = out[0];
-  out_full[j + 1] = out[1];
-  out_full[j + 2] = out[2];
-  out_full[j + 3] = out[3];
-
-  /*
-   * check the CRC32 "hash"
-   */
-
-  u32 seven_zip_crc = seven_zip->crc;
-
-  u32 crc;
-
-  if (data_type == 0) // uncompressed
-  {
-    crc = cpu_crc32_buffer ((u8 *) out_full, unpack_size);
-  }
-  else
-  {
-    u32 crc_len = seven_zip->crc_len;
-
-    const char *coder_attributes = seven_zip->coder_attributes;
-
-    // the lower 4 bits name the compressor, the upper 4 bits a filter that ran before it
-
-    const u32 coder  = data_type & 0x0f;
-    const u64 filter = seven_zip_filter_id (data_type >> 4);
-
-    // input buffers and length
-
-    u8 *compressed_data = (u8 *) out_full;
-
-    size_t compressed_data_len = aes_len;
-
-    // output buffers and length
-
-    unsigned char *decompressed_data = (unsigned char *) seven_zip_hook_extra->unp[device_param->device_id];
-
-    if (filter != HC_LZMA_VLI_UNKNOWN)
-    {
-      unsigned char *filtered_data = (unsigned char *) seven_zip_hook_extra->flt[device_param->device_id];
-
-      const bool match = seven_zip_filtered_crc (seven_zip, coder, filter, compressed_data, compressed_data_len, decompressed_data, filtered_data);
-
-      hook_item->hook_success = (match == true) ? 1 : 0;
-
-      return;
-    }
-
-    size_t decompressed_data_len = crc_len;
-
-    bool ok;
-
-    if (coder == 1) // LZMA1
-    {
-      ok = hc_lzma1_decompress (compressed_data, &compressed_data_len, decompressed_data, &decompressed_data_len, coder_attributes);
-    }
-    else if (coder == 7) // DEFLATE
-    {
-      ok = hc_inflate_raw (compressed_data, compressed_data_len, decompressed_data, decompressed_data_len);
-    }
-    else if (coder == 8) // ZSTD
-    {
-      ok = hc_zstd_decompress (compressed_data, compressed_data_len, decompressed_data, decompressed_data_len);
-    }
-    else // we only support LZMA2 in addition to LZMA1, DEFLATE and ZSTD
-    {
-      ok = hc_lzma2_decompress (compressed_data, &compressed_data_len, decompressed_data, &decompressed_data_len, coder_attributes);
-    }
-
-    if (ok == false)
-    {
-      hook_item->hook_success = 0;
-
-      return;
-    }
-
-    crc = cpu_crc32_buffer (decompressed_data, crc_len);
-  }
-
-  if (crc == seven_zip_crc)
-  {
-    hook_item->hook_success = 1;
-  }
-  else
-  {
-    hook_item->hook_success = 0;
-  }
+  hook_item->hook_success = (match == true) ? 1 : 0;
 }
 
 static u64 module_hook_size (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
@@ -502,493 +795,405 @@ static u32 module_kernel_loops_max (MAYBE_UNUSED const hashconfig_t *hashconfig,
   return kernel_loops_max;
 }
 
-// Map an ArchiveWolf coder chain string to the old data_type nibble encoding.
-// Returns -1 for unsupported chains. Chain format: "id[:props],id[:props],..."
-
-static int chain_to_data_type (const u8 *chain_pos, const int chain_len, seven_zip_hook_salt_t *seven_zip)
+static bool sz_is_dec (const u8 *buf, const u32 len)
 {
-  if (chain_len == 0)
+  if (len == 0) return false;
+
+  for (u32 i = 0; i < len; i++)
   {
-    return 0; // stored
+    if ((buf[i] < '0') || (buf[i] > '9')) return false;
   }
 
-  // single coder, no filter
-  int coder = 0;
-  int filter = 0;
-
-  // parse first coder id
-
-  if ((chain_len >= 2) && (chain_pos[0] == '2') && (chain_pos[1] == '1'))
-  {
-    coder = 2; // LZMA2
-
-    if ((chain_len >= 4) && (chain_pos[2] == ':'))
-    {
-      seven_zip->coder_attributes[0] = hex_to_u8 (&chain_pos[3]);
-      seven_zip->coder_attributes_len = 1;
-    }
-  }
-  else if ((chain_len >= 6) && (memcmp (chain_pos, "030101", 6) == 0))
-  {
-    coder = 1; // LZMA1
-
-    const u8 *props = (const u8 *) hc_strchr_next (chain_pos, chain_len, ':');
-
-    if (props != NULL)
-    {
-      props++;
-
-      const int props_left = chain_len - (int) (props - chain_pos);
-
-      for (int i = 0, j = 0; j < props_left && i < 5; i++, j += 2)
-      {
-        seven_zip->coder_attributes[i] = hex_to_u8 (&props[j]);
-        seven_zip->coder_attributes_len++;
-      }
-    }
-  }
-  else if ((chain_len >= 6) && (memcmp (chain_pos, "030401", 6) == 0))
-  {
-    coder = 3; // PPMd
-
-    const u8 *props = (const u8 *) hc_strchr_next (chain_pos, chain_len, ':');
-
-    if (props != NULL)
-    {
-      props++;
-
-      const int props_left = chain_len - (int) (props - chain_pos);
-
-      for (int i = 0, j = 0; j < props_left && j < 10 && i < 5; i++, j += 2)
-      {
-        seven_zip->coder_attributes[i] = hex_to_u8 (&props[j]);
-        seven_zip->coder_attributes_len++;
-      }
-    }
-  }
-  else if ((chain_len >= 6) && (memcmp (chain_pos, "040202", 6) == 0))
-  {
-    coder = 6; // BZip2
-  }
-  else if ((chain_len >= 6) && (memcmp (chain_pos, "040108", 6) == 0))
-  {
-    coder = 7; // Deflate
-  }
-  else if ((chain_len >= 6) && (memcmp (chain_pos, "040109", 6) == 0))
-  {
-    coder = 7; // Deflate64 (same kernel path as Deflate)
-  }
-  else if ((chain_len >= 8) && (memcmp (chain_pos, "04f71101", 8) == 0))
-  {
-    coder = 8; // Zstd
-  }
-  else
-  {
-    return -1; // unsupported coder
-  }
-
-  // check for a comma-separated filter after the compressor
-  // BCJ2 chains have 4 coders: skip to the LAST comma-separated entry for the filter
-
-  const u8 *comma = (const u8 *) hc_strchr_next (chain_pos, chain_len, ',');
-
-  // for multi-coder chains (BCJ2), advance to the last entry
-  if (comma != NULL)
-  {
-    const u8 *last_comma = comma;
-
-    for (;;)
-    {
-      const int left = chain_len - (int) (last_comma + 1 - chain_pos);
-      const u8 *next = (const u8 *) hc_strchr_next (last_comma + 1, left, ',');
-
-      if (next == NULL) break;
-
-      last_comma = next;
-    }
-
-    comma = last_comma;
-    comma++;
-
-    const int filter_left = chain_len - (int) (comma - chain_pos);
-
-    if ((filter_left >= 8) && (memcmp (comma, "03030103", 8) == 0))
-    {
-      filter = 1; // BCJ x86
-
-      // optional start offset
-      const u8 *fp = (const u8 *) hc_strchr_next (comma, filter_left, ':');
-
-      if (fp != NULL)
-      {
-        fp++;
-
-        const int fp_left = filter_left - (int) (fp - comma);
-
-        for (int i = 0, j = 0; j < fp_left && i < 4; i++, j += 2)
-        {
-          seven_zip->filter_attributes[i] = hex_to_u8 (&fp[j]);
-          seven_zip->filter_attributes_len++;
-        }
-      }
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030501", 8) == 0))
-    {
-      filter = 5; // ARM
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "0303011b", 8) == 0))
-    {
-      filter = 2; // BCJ2
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030701", 8) == 0))
-    {
-      filter = 3; // PPC
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030401", 8) == 0))
-    {
-      filter = 4; // IA64
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030801", 8) == 0))
-    {
-      filter = 6; // SPARC
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030805", 8) == 0))
-    {
-      filter = 6; // SPARC (alternate ID from ArchiveWolf)
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "0303050b", 8) == 0))
-    {
-      filter = 7; // ARM64
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030509", 8) == 0))
-    {
-      filter = 8; // ARMT
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "0303050d", 8) == 0))
-    {
-      filter = 10; // RISCV
-    }
-    else if ((filter_left >= 2) && (memcmp (comma, "0a", 2) == 0) && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 7; // ARM64 (short ID)
-    }
-    else if ((filter_left >= 2) && (memcmp (comma, "0b", 2) == 0) && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 8; // ARMT (short ID)
-    }
-    else if ((filter_left >= 2) && (memcmp (comma, "04", 2) == 0) && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 4; // IA64 (short ID)
-    }
-    else if ((filter_left >= 2) && (memcmp (comma, "05", 2) == 0) && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 6; // SPARC (short ID)
-    }
-    else if ((filter_left >= 2) && (memcmp (comma, "09", 2) == 0) && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 3; // PPC (short ID)
-    }
-    else if ((filter_left >= 6) && (memcmp (comma, "020302", 6) == 0))
-    {
-      filter = 11; // Swap2 byte-swap filter
-    }
-    else if ((filter_left >= 8) && (memcmp (comma, "03030205", 8) == 0))
-    {
-      filter = 11; // Swap2 (long-form ID from ArchiveWolf)
-    }
-    else if ((filter_left >= 6) && (memcmp (comma, "020304", 6) == 0))
-    {
-      filter = 12; // Swap4 byte-swap filter
-    }
-    else if ((filter_left >= 2) && (comma[0] == '0') && (comma[1] == '3') && (filter_left == 2 || comma[2] == ':'))
-    {
-      filter = 9; // Delta
-
-      if ((filter_left >= 4) && (comma[2] == ':'))
-      {
-        seven_zip->filter_attributes[0] = hex_to_u8 (&comma[3]);
-        seven_zip->filter_attributes_len = 1;
-      }
-    }
-    else
-    {
-      return -1;
-    }
-  }
-
-  return (filter << 4) | coder;
+  return true;
 }
 
-// Try parsing the ArchiveWolf new format: $7z$power$salt$iv$crc$crc_len$data_len$unpack_size$data$chain
+// The fields are not terminated, so a number is copied out before it is converted.
 
-static int parse_new_7z_format (u32 *digest, salt_t *salt, seven_zip_hook_salt_t *seven_zip, const char *line_buf, const int line_len)
+static bool sz_number (const u8 *buf, const u32 len, const int base, u64 *value)
 {
-  // new format has exactly 10 $-separated fields (after $7z$)
-  // quick detection: CRC field (field[4] after $7z$) is exactly 8 hex chars
+  if ((len < 1) || (len > 16)) return false;
 
-  const u8 *pos = (const u8 *) line_buf + 4; // skip "$7z$"
-  int remaining = line_len - 4;
+  if ((base == 10) && (sz_is_dec (buf, len) == false)) return false;
 
-  // field 0: power (1-2 digits)
-  const u8 *power_pos = pos;
-  const u8 *sep = (const u8 *) memchr (pos, '$', remaining);
+  if ((base == 16) && (is_valid_hex_string (buf, len) == false)) return false;
 
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+  char tmp[20] = { 0 };
 
-  const int power_len = (int) (sep - power_pos);
+  memcpy (tmp, buf, len);
 
-  if (power_len < 1 || power_len > 2) return (PARSER_SEPARATOR_UNMATCHED);
+  *value = hc_strtoull (tmp, NULL, base);
 
-  // field 1: salt (hex, may be empty)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
+  return true;
+}
 
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+static bool sz_bytes (const u8 *buf, const u32 len, u8 *out, const u32 out_max, u32 *out_len)
+{
+  if ((len & 1) || ((len / 2) > out_max)) return false;
 
-  const u8 *salt_hex_pos = pos;
-  const int salt_hex_len = (int) (sep - pos);
+  if ((len > 0) && (is_valid_hex_string (buf, len) == false)) return false;
 
-  // field 2: iv (hex, 0-32 chars)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
+  for (u32 i = 0; i < len / 2; i++) out[i] = hex_to_u8 (&buf[i * 2]);
 
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+  *out_len = len / 2;
 
-  const u8 *iv_hex_pos = pos;
-  const int iv_hex_len = (int) (sep - pos);
+  return true;
+}
 
-  // field 3: crc (exactly 8 hex chars)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
+// A list of coders: id/properties/size, separated by commas. There is no colon in a line, because
+// hashcat counts the colons of a line to tell lists of other tools apart.
 
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+static int sz_parse_chain (const u8 *buf, const u32 len, sz_coder_t *chain, u32 *chain_cnt)
+{
+  *chain_cnt = 0;
 
-  const u8 *crc_pos = pos;
-  const int crc_len = (int) (sep - pos);
+  u32 pos = 0;
 
-  // detection: CRC must be exactly 8 hex chars. In old format, this position is salt (often empty).
-  if (crc_len != 8) return (PARSER_SEPARATOR_UNMATCHED);
-
-  if (is_valid_hex_string (crc_pos, 8) == false) return (PARSER_SEPARATOR_UNMATCHED);
-
-  // field 4: crc_len (decimal)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
-
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-  const u8 *crc_len_pos = pos;
-  const int crc_len_field_len = (int) (sep - pos);
-
-  // field 5: data_len (decimal)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
-
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-  const u8 *data_len_pos = pos;
-
-  // field 6: unpack_size (decimal)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
-
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-  const u8 *unpack_size_pos = pos;
-
-  // field 7: data (hex)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-  sep = (const u8 *) memchr (pos, '$', remaining);
-
-  if (sep == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-  const u8 *data_buf_pos = pos;
-  int data_buf_len = (int) (sep - pos);
-
-  // field 8: chain (may be empty, then optional extra_streams)
-  pos = sep + 1;
-  remaining = line_len - (int) (pos - (const u8 *) line_buf);
-
-  const u8 *chain_pos = pos;
-  int chain_len = remaining;
-
-  // chain may have extra_streams appended after a $
-  const u8 *chain_sep = (const u8 *) memchr (chain_pos, '$', chain_len);
-
-  if (chain_sep != NULL)
+  while (pos < len)
   {
-    chain_len = (int) (chain_sep - chain_pos);
+    u32 end = pos;
+
+    while ((end < len) && (buf[end] != ',')) end++;
+
+    if (*chain_cnt == SZ_CHAIN_MAX) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+
+    u32 slash1 = pos;
+
+    while ((slash1 < end) && (buf[slash1] != '/')) slash1++;
+
+    u32 slash2 = slash1 + 1;
+
+    while ((slash2 < end) && (buf[slash2] != '/')) slash2++;
+
+    if ((slash1 >= end) || (slash2 >= end)) return (PARSER_SEPARATOR_UNMATCHED);
+
+    sz_coder_t *coder = &chain[*chain_cnt];
+
+    memset (coder, 0, sizeof (sz_coder_t));
+
+    u8  id[4];
+    u32 id_len = 0;
+
+    if (sz_bytes (buf + pos, slash1 - pos, id, 4, &id_len) == false) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+
+    coder->kind = sz_kind_of (id, id_len);
+
+    if (coder->kind == SZ_KIND_NONE) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+
+    if (sz_bytes (buf + slash1 + 1, slash2 - slash1 - 1, coder->props, SZ_PROPS_MAX, &coder->props_len) == false) return (PARSER_SALT_VALUE);
+
+    if (sz_number (buf + slash2 + 1, end - slash2 - 1, 16, &coder->size) == false) return (PARSER_SALT_VALUE);
+
+    (*chain_cnt)++;
+
+    pos = end + 1;
+
+    if ((end < len) && (pos == len)) return (PARSER_SEPARATOR_UNMATCHED);
   }
-
-  // strip trailing whitespace (newline from file reading)
-  while (chain_len > 0 && (chain_pos[chain_len - 1] == '\n' || chain_pos[chain_len - 1] == '\r'))
-  {
-    chain_len--;
-  }
-
-  // parse numeric fields
-
-  const int iter = hc_strtoul ((const char *) power_pos, NULL, 10);
-
-  if (iter > 31) return (PARSER_SALT_ITERATION);
-
-  const u32 crc = (u32) hc_strtoull ((const char *) crc_pos, NULL, 16);
-
-  const int crc_len_val = hc_strtoul ((const char *) crc_len_pos, NULL, 10);
-  const int data_len = hc_strtoul ((const char *) data_len_pos, NULL, 10);
-  const int unpack_size = hc_strtoul ((const char *) unpack_size_pos, NULL, 10);
-
-  if ((data_len * 2) != data_buf_len) return (PARSER_SALT_VALUE);
-
-  if (data_len > 0x200000 * 4) return (PARSER_SALT_VALUE);
-
-  // parse chain to data_type
-
-  memset (seven_zip->coder_attributes, 0, sizeof (seven_zip->coder_attributes));
-
-  seven_zip->coder_attributes_len = 0;
-
-  memset (seven_zip->filter_attributes, 0, sizeof (seven_zip->filter_attributes));
-
-  seven_zip->filter_attributes_len = 0;
-
-  const int data_type = chain_to_data_type (chain_pos, chain_len, seven_zip);
-
-  if (data_type < 0) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
-
-  // stored entries (no compressor chain) must have unpack_size <= data_len
-  if ((data_type == 0) && (unpack_size > data_len)) return (PARSER_SALT_VALUE);
-
-  seven_zip->data_type = data_type;
-
-  // IV (zero-padded to 16 bytes in new format)
-
-  if (iv_hex_len > 32) return (PARSER_SALT_VALUE);
-
-  if ((iv_hex_len > 0) && (is_valid_hex_string (iv_hex_pos, iv_hex_len) == false)) return (PARSER_SALT_ENCODING);
-
-  // pad to 32 hex chars then use hex_to_u32 (which produces hashcat's internal byte order)
-
-  u8 iv_padded[32] = { '0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0' };
-
-  if (iv_hex_len > 0) memcpy (iv_padded, iv_hex_pos, iv_hex_len);
-
-  seven_zip->iv_buf[0] = hex_to_u32 (iv_padded +  0);
-  seven_zip->iv_buf[1] = hex_to_u32 (iv_padded +  8);
-  seven_zip->iv_buf[2] = hex_to_u32 (iv_padded + 16);
-  seven_zip->iv_buf[3] = hex_to_u32 (iv_padded + 24);
-
-  seven_zip->iv_len = iv_hex_len / 2;
-
-  // salt (may be non-zero in new format)
-
-  if (salt_hex_len > 32) return (PARSER_SALT_VALUE);
-
-  if ((salt_hex_len > 0) && (is_valid_hex_string (salt_hex_pos, salt_hex_len) == false)) return (PARSER_SALT_ENCODING);
-
-  memset (seven_zip->salt_buf, 0, sizeof (seven_zip->salt_buf));
-
-  seven_zip->salt_len = salt_hex_len / 2;
-
-  // CRC and lengths
-
-  seven_zip->crc = crc;
-  seven_zip->crc_len = crc_len_val;
-
-  // data
-
-  if (is_valid_hex_string (data_buf_pos, data_buf_len) == false) return (PARSER_SALT_ENCODING);
-
-  for (int i = 0, j = 0; j < data_buf_len; i += 1, j += 8)
-  {
-    const int rem = data_buf_len - j;
-
-    if (rem >= 8)
-    {
-      seven_zip->data_buf[i] = hex_to_u32 (data_buf_pos + j);
-
-      continue;
-    }
-
-    u8 tmp_buf[8] = { '0', '0', '0', '0', '0', '0', '0', '0' };
-
-    memcpy (tmp_buf, data_buf_pos + j, rem);
-
-    seven_zip->data_buf[i] = hex_to_u32 (tmp_buf);
-  }
-
-  seven_zip->data_len = data_len;
-  seven_zip->unpack_size = unpack_size;
-
-  // compute aes_len
-
-  const int coder = data_type & 0x0f;
-  const int filter = data_type >> 4;
-
-  int aes_len = data_len;
-
-  if (crc_len_val != 0)
-  {
-    const int needed_len = (filter != 0) ? crc_len_val + 16 : crc_len_val;
-
-    if (coder == 1)
-    {
-      aes_len = 32.5f + (float) needed_len * 1.05f;
-    }
-    else if (coder == 2)
-    {
-      aes_len = 4.5f + (float) needed_len * 1.01f;
-    }
-
-    aes_len = MIN (aes_len, data_len);
-  }
-
-  seven_zip->aes_len = aes_len;
-
-  // fill salt_t
-
-  salt->salt_buf[0] = seven_zip->data_buf[0];
-  salt->salt_buf[1] = seven_zip->data_buf[1];
-  salt->salt_buf[2] = seven_zip->data_buf[2];
-  salt->salt_buf[3] = seven_zip->data_buf[3];
-
-  salt->salt_len = 16;
-
-  salt->salt_sign[0] = data_type;
-
-  salt->salt_iter = 1u << iter;
-
-  // digest
-
-  digest[0] = crc;
-  digest[1] = 0;
-  digest[2] = 0;
-  digest[3] = 0;
 
   return (PARSER_OK);
 }
 
-static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED void *digest_buf, MAYBE_UNUSED salt_t *salt, MAYBE_UNUSED void *esalt_buf, MAYBE_UNUSED void *hook_salt_buf, MAYBE_UNUSED hashinfo_t *hash_info, const char *line_buf, MAYBE_UNUSED const int line_len)
+// What a parser of either form has filled in is checked here, and what the kernel and the hook
+// need beyond the fields is worked out.
+
+static int sz_finish_line (const hashconfig_t *hashconfig, u32 *digest, salt_t *salt, seven_zip_hook_salt_t *seven_zip, const char *line_buf, const int line_len)
 {
-  u32 *digest = (u32 *) digest_buf;
+  // only the pure kernel hashes a salt in front of the password
 
-  seven_zip_hook_salt_t *seven_zip = (seven_zip_hook_salt_t *) hook_salt_buf;
+  if ((seven_zip->salt_len != 0) && (hashconfig->opti_type & OPTI_TYPE_OPTIMIZED_KERNEL)) return (PARSER_SALT_VALUE);
 
-  // try new ArchiveWolf format first
+  // 7-Zip itself takes no more than 2^24 rounds. 63 stands for a key that is the salt and the
+  // password as they are, which 7-Zip reads and never writes, and which is not tested here.
 
-  const int rc_new = parse_new_7z_format (digest, salt, seven_zip, line_buf, line_len);
+  if (seven_zip->power > 24) return (PARSER_SALT_ITERATION);
 
-  if (rc_new == PARSER_OK) return (PARSER_OK);
+  // the optimized kernel hashes 64 rounds at a time
 
-  // fall back to old 7z2hashcat format
+  if ((seven_zip->power < 6) && (hashconfig->opti_type & OPTI_TYPE_OPTIMIZED_KERNEL)) return (PARSER_SALT_ITERATION);
 
+  if ((seven_zip->stream_cnt != 1) && (seven_zip->stream_cnt != SZ_STREAMS_MAX)) return (PARSER_SALT_VALUE);
+
+  if (seven_zip->stream_cnt == 1)
+  {
+    if (seven_zip->join_cnt != 0) return (PARSER_SALT_VALUE);
+  }
+  else
+  {
+    if ((seven_zip->join_cnt == 0) || (seven_zip->join[0].kind != SZ_KIND_BCJ2)) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+
+    if (seven_zip->has_crc != SZ_CHECK_CRC) return (PARSER_HASH_VALUE);
+  }
+
+  for (u32 i = 1; i < seven_zip->join_cnt; i++)
+  {
+    if (!SZ_KIND_IS_FILTER (seven_zip->join[i].kind)) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+  }
+
+  u64 data_total = 0;
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    const sz_stream_t *stream = &seven_zip->streams[s];
+
+    // BCJ2 leaves a stream empty when the code has no calls or no jumps to take out
+
+    if ((seven_zip->stream_cnt > 1) && (stream->packed == 0) && (stream->unpacked == 0) && (stream->data_len == 0) && (stream->chain_cnt == 0)) continue;
+
+    if ((stream->packed == 0) || (stream->packed & 15)) return (PARSER_SALT_VALUE);
+
+    if ((stream->unpacked > stream->packed) || (stream->packed - stream->unpacked >= 16)) return (PARSER_SALT_VALUE);
+
+    if ((stream->data_len == 0) || (stream->data_len & 15) || (stream->data_len > stream->packed)) return (PARSER_SALT_VALUE);
+
+    // four streams are put together from all they hold
+
+    if ((seven_zip->stream_cnt > 1) && (stream->data_len != stream->packed)) return (PARSER_SALT_VALUE);
+
+    data_total += stream->data_len;
+
+    for (u32 i = 0; i < stream->chain_cnt; i++)
+    {
+      const sz_coder_t *coder = &stream->chain[i];
+
+      if (coder->kind == SZ_KIND_BCJ2) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+
+      if ((coder->kind == SZ_KIND_ZSTD) && (hc_zstd_available () == false)) return (PARSER_ZSTD_UNAVAILABLE);
+
+      if (coder->kind == SZ_KIND_PPMD)
+      {
+        if (coder->props_len < 5) return (PARSER_SALT_VALUE);
+
+        const u32 mem = ((u32) coder->props[1]) | ((u32) coder->props[2] << 8) | ((u32) coder->props[3] << 16) | ((u32) coder->props[4] << 24);
+
+        if (mem > SZ_PPMD_MEM_MAX) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
+      }
+    }
+  }
+
+  if (data_total > SZ_DATA_MAX) return (PARSER_SALT_LENGTH);
+
+  const sz_stream_t *first = &seven_zip->streams[0];
+
+  const u64 final = sz_final_size (seven_zip);
+
+  if (seven_zip->has_crc == SZ_CHECK_CRC)
+  {
+    if ((seven_zip->crc_len == 0) || (seven_zip->crc_len + SZ_LOOKAHEAD > SZ_OUT_MAX)) return (PARSER_SALT_VALUE);
+
+    if ((final != 0) && (seven_zip->crc_len > final)) return (PARSER_SALT_VALUE);
+  }
+  else if (seven_zip->has_crc == SZ_CHECK_HEADER)
+  {
+    // a header is unpacked in full
+
+    if ((first->data_len != first->packed) || (final == 0) || (final > SZ_OUT_MAX)) return (PARSER_SALT_VALUE);
+  }
+  else
+  {
+    // without a checksum the stream has to speak for itself, which stored data cannot
+
+    if (sz_first_packer (first) == SZ_KIND_NONE) return (PARSER_HASH_VALUE);
+
+    // only the start is tested: these two take anything, or do not say how far they came
+
+    const bool to_end = (first->data_len == first->packed) && (final != 0) && (final <= SZ_OUT_MAX);
+
+    if (to_end == false)
+    {
+      const u32 kind = first->chain[0].kind;
+
+      if ((kind == SZ_KIND_PPMD) || (kind == SZ_KIND_ZSTD)) return (PARSER_HASH_VALUE);
+
+      // LZMA2 and Deflate can store data as it is, in chunks of up to 64 KiB that nothing checks.
+      // A megabyte holds enough chunk headers for a wrong key to fail on one of them. Of three
+      // million random starts of 4 KiB, LZMA2 took 10,808 and Deflate 14.
+
+      if ((kind == SZ_KIND_LZMA2) || (kind == SZ_KIND_DEFLATE) || (kind == SZ_KIND_DEFLATE64))
+      {
+        if (first->data_len < SZ_START_MIN) return (PARSER_HASH_VALUE);
+      }
+    }
+  }
+
+  // Every line is a salt of its own: the hook is handed one hook salt for a salt, so two lines
+  // that shared one would be tested against the data of the first.
+
+  salt->salt_buf[0] = cpu_crc32_buffer ((const u8 *) line_buf, (size_t) line_len);
+  salt->salt_buf[1] = cpu_crc32_buffer (first->data, first->data_len);
+  salt->salt_buf[2] = seven_zip->crc;
+  salt->salt_buf[3] = (u32) seven_zip->crc_len;
+  salt->salt_buf[4] = (u32) first->packed;
+  salt->salt_buf[5] = seven_zip->stream_cnt;
+
+  // the salt of the key derivation, for the kernel
+
+  memcpy (&salt->salt_buf[8], seven_zip->salt, 16);
+
+  salt->salt_buf[12] = seven_zip->salt_len;
+
+  salt->salt_len = 52;
+
+  salt->salt_iter = 1u << seven_zip->power;
+
+  digest[0] = salt->salt_buf[0];
+  digest[1] = salt->salt_buf[1];
+  digest[2] = salt->salt_buf[2];
+  digest[3] = salt->salt_buf[3];
+
+  return (PARSER_OK);
+}
+
+static int sz_decode_new (const hashconfig_t *hashconfig, u32 *digest, salt_t *salt, seven_zip_hook_salt_t *seven_zip, const char *line_buf, const int line_len)
+{
+  if (line_len < 5 + 5) return (PARSER_SIGNATURE_UNMATCHED);
+
+  if (memcmp (line_buf + line_len - 5, SIGNATURE_SEVEN_ZIP_STOP, 5) != 0) return (PARSER_SIGNATURE_UNMATCHED);
+
+  #define SZ_FIELDS_MAX (6 + (SZ_STREAMS_MAX * 5))
+
+  const u8 *field[SZ_FIELDS_MAX];
+
+  u32 flen[SZ_FIELDS_MAX];
+
+  u32 cnt = 0;
+
+  const u8 *buf = (const u8 *) line_buf;
+
+  const u32 end = (u32) line_len - 5;
+
+  u32 pos = 4;
+
+  while (pos < end)
+  {
+    pos++;
+
+    const u32 start = pos;
+
+    while ((pos < end) && (buf[pos] != '*')) pos++;
+
+    if (cnt == SZ_FIELDS_MAX) return (PARSER_TOKEN_LENGTH);
+
+    field[cnt] = buf + start;
+    flen[cnt]  = pos - start;
+
+    cnt++;
+  }
+
+  if (cnt < 6) return (PARSER_TOKEN_LENGTH);
+
+  u64 value = 0;
+
+  if (sz_number (field[0], flen[0], 10, &value) == false) return (PARSER_SALT_ITERATION);
+
+  if (value > 63) return (PARSER_SALT_ITERATION);
+
+  seven_zip->power = (u32) value;
+
+  if (sz_bytes (field[1], flen[1], seven_zip->salt, 16, &seven_zip->salt_len) == false) return (PARSER_SALT_LENGTH);
+
+  if (flen[2] == 0)
+  {
+    seven_zip->has_crc = SZ_CHECK_STREAM;
+  }
+  else if ((flen[2] == 6) && (memcmp (field[2], "header", 6) == 0))
+  {
+    seven_zip->has_crc = SZ_CHECK_HEADER;
+  }
+  else
+  {
+    if ((flen[2] != 8) || (sz_number (field[2], 8, 16, &value) == false)) return (PARSER_HASH_ENCODING);
+
+    seven_zip->has_crc = SZ_CHECK_CRC;
+    seven_zip->crc     = (u32) value;
+  }
+
+  if (sz_number (field[3], flen[3], 16, &seven_zip->crc_len) == false) return (PARSER_SALT_VALUE);
+
+  const int rc_join = sz_parse_chain (field[4], flen[4], seven_zip->join, &seven_zip->join_cnt);
+
+  if (rc_join != PARSER_OK) return rc_join;
+
+  if (sz_number (field[5], flen[5], 10, &value) == false) return (PARSER_SALT_VALUE);
+
+  if ((value != 1) && (value != SZ_STREAMS_MAX)) return (PARSER_SALT_VALUE);
+
+  seven_zip->stream_cnt = (u32) value;
+
+  if (cnt != 6 + (seven_zip->stream_cnt * 5)) return (PARSER_TOKEN_LENGTH);
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
+  {
+    const u32 at = 6 + (s * 5);
+
+    sz_stream_t *stream = &seven_zip->streams[s];
+
+    if (sz_bytes (field[at + 0], flen[at + 0], stream->iv, 16, &stream->iv_len) == false) return (PARSER_SALT_LENGTH);
+
+    if (sz_number (field[at + 1], flen[at + 1], 16, &stream->packed)   == false) return (PARSER_SALT_VALUE);
+    if (sz_number (field[at + 2], flen[at + 2], 16, &stream->unpacked) == false) return (PARSER_SALT_VALUE);
+
+    const int rc_chain = sz_parse_chain (field[at + 3], flen[at + 3], stream->chain, &stream->chain_cnt);
+
+    if (rc_chain != PARSER_OK) return rc_chain;
+
+    const u32 hex_len = flen[at + 4];
+
+    if ((hex_len & 1) || ((hex_len / 2) > SZ_DATA_MAX)) return (PARSER_SALT_LENGTH);
+
+    if (hex_len == 0) continue;
+
+    if (is_valid_hex_string (field[at + 4], hex_len) == false) return (PARSER_SALT_ENCODING);
+
+    stream->data_len = hex_len / 2;
+    stream->data     = (u8 *) hcmalloc (stream->data_len);
+
+    if (stream->data == NULL) return (PARSER_HAVE_ERRNO);
+
+    for (u32 i = 0; i < stream->data_len; i++) stream->data[i] = hex_to_u8 (&field[at + 4][i * 2]);
+  }
+
+  return sz_finish_line (hashconfig, digest, salt, seven_zip, line_buf, line_len);
+}
+
+// The line of mode 11600, which 7z2hashcat writes:
+//
+//   $7z$type$power$salt_len$salt$iv_len$iv$crc32$data_len$unpack_size$data[$crc_len$attributes[$filter_attributes]]
+//
+// The low four bits of type name the packer and the high four bits a filter that follows it.
+
+static u32 sz_legacy_packer (const u32 coder)
+{
+  switch (coder)
+  {
+    case 1: return SZ_KIND_LZMA;
+    case 2: return SZ_KIND_LZMA2;
+    case 3: return SZ_KIND_PPMD;
+    case 6: return SZ_KIND_BZIP2;
+    case 7: return SZ_KIND_DEFLATE;
+    case 8: return SZ_KIND_ZSTD;
+  }
+
+  return SZ_KIND_NONE;
+}
+
+static u32 sz_legacy_filter (const u32 filter)
+{
+  switch (filter)
+  {
+    case 1: return SZ_KIND_X86;
+    case 3: return SZ_KIND_PPC;
+    case 4: return SZ_KIND_IA64;
+    case 5: return SZ_KIND_ARM;
+    case 6: return SZ_KIND_ARMT;
+    case 7: return SZ_KIND_SPARC;
+    case 9: return SZ_KIND_DELTA;
+  }
+
+  return SZ_KIND_NONE;
+}
+
+static int sz_decode_legacy (const hashconfig_t *hashconfig, u32 *digest, salt_t *salt, seven_zip_hook_salt_t *seven_zip, const char *line_buf, const int line_len)
+{
   hc_token_t token;
 
   memset (&token, 0, sizeof (hc_token_t));
@@ -1021,7 +1226,7 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   token.sep[4]      = '$';
   token.len_min[4]  = 0;
-  token.len_max[4]  = 15; // sizeof (seven_zip->salt_buf) - 1, hash_encode prints it with %s
+  token.len_max[4]  = 32;
   token.attr[4]     = TOKEN_ATTR_VERIFY_LENGTH;
 
   token.sep[5]      = '$';
@@ -1055,412 +1260,250 @@ static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYB
 
   token.sep[10]     = '$';
   token.len_min[10] = 2;
-  token.len_max[10] = 0x200000 * 4 * 2;
+  token.len_max[10] = SZ_DATA_MAX * 2 + 64;
   token.attr[10]    = TOKEN_ATTR_VERIFY_LENGTH;
 
   const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, line_len, &token);
 
   if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
 
-  const u8 *data_type_pos       = token.buf[ 1];
-  const u8 *NumCyclesPower_pos  = token.buf[ 2];
-  const u8 *salt_len_pos        = token.buf[ 3];
-  const u8 *salt_buf_pos        = token.buf[ 4];
-  const u8 *iv_len_pos          = token.buf[ 5];
-  const u8 *iv_buf_pos          = token.buf[ 6];
-  const u8 *crc_buf_pos         = token.buf[ 7];
-  const u8 *data_len_pos        = token.buf[ 8];
-  const u8 *unpack_size_pos     = token.buf[ 9];
-  const u8 *data_buf_pos        = token.buf[10];
+  const u8 *line_end = (const u8 *) line_buf + line_len;
 
-  const int data_type_len       = token.len[ 1];
-  const int NumCyclesPower_len  = token.len[ 2];
-  const int salt_len_len        = token.len[ 3];
-  const int salt_buf_len        = token.len[ 4];
-  const int iv_len_len          = token.len[ 5];
-  const int iv_buf_len          = token.len[ 6];
-  const int crc_buf_len         = token.len[ 7];
-  const int data_len_len        = token.len[ 8];
-  const int unpack_size_len     = token.len[ 9];
-        int data_buf_len        = token.len[10];
+  // what follows the data: the length the CRC-32 covers, the attributes of the packer and
+  // those of the filter, each behind a separator of its own
 
-  // fields only used when data was compressed:
+  const u8 *tail[3]     = { NULL, NULL, NULL };
+  u32       tail_len[3] = { 0, 0, 0 };
+  u32       tails       = 0;
 
-  // the token is length-delimited, not NUL-terminated, so strchr() would scan
-  // past the end of the line. hc_strchr_next() is the bounded equivalent.
-  u8 *crc_len_pos = (u8 *) hc_strchr_next (data_buf_pos, data_buf_len, '$');
+  const u8 *data_pos = token.buf[10];
+  u32       data_hex = token.len[10];
 
-  u32 crc_len_len          = 0;
-  u8 *coder_attributes_pos = 0;
-  u32 coder_attributes_len = 0;
+  const u8 *sep = (const u8 *) hc_strchr_next (data_pos, data_hex, '$');
 
-  u8 *filter_attributes_pos = NULL;
-  u32 filter_attributes_len = 0;
-
-  if (crc_len_pos != NULL)
+  if (sep != NULL)
   {
-    const int crc_left = data_buf_len - (int) (crc_len_pos - data_buf_pos) - 1;
+    data_hex = (u32) (sep - data_pos);
 
-    data_buf_len = crc_len_pos - data_buf_pos;
+    const u8 *at = sep + 1;
 
-    crc_len_pos++;
-
-    coder_attributes_pos = (u8 *) hc_strchr_next (crc_len_pos, crc_left, '$');
-
-    if (coder_attributes_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-    crc_len_len = coder_attributes_pos - crc_len_pos;
-
-    coder_attributes_pos++;
-  }
-
-  if (is_valid_hex_string (data_buf_pos, data_buf_len) == false) return (PARSER_SALT_ENCODING);
-
-  const int iter         = hc_strtoul ((const char *) NumCyclesPower_pos, NULL, 10);
-  const int crc          = hc_strtoul ((const char *) crc_buf_pos,        NULL, 10);
-  const int data_type    = hc_strtoul ((const char *) data_type_pos,      NULL, 10);
-  const int salt_len     = hc_strtoul ((const char *) salt_len_pos,       NULL, 10);
-  const int iv_len       = hc_strtoul ((const char *) iv_len_pos,         NULL, 10);
-  const int unpack_size  = hc_strtoul ((const char *) unpack_size_pos,    NULL, 10);
-  const int data_len     = hc_strtoul ((const char *) data_len_pos,       NULL, 10);
-
-  // if neither uncompressed nor truncated, then we need the length for crc and coder attributes
-
-  int crc_len = 0;
-
-  bool is_compressed = ((data_type != 0) && (data_type != 0x80));
-
-  if (is_compressed == true)
-  {
-    if (crc_len_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
-
-    coder_attributes_len = line_len - 1 - 2 - 1 - data_type_len - 1 - NumCyclesPower_len - 1 - salt_len_len - 1 - salt_buf_len - 1 - iv_len_len - 1 - iv_buf_len - 1 - crc_buf_len - 1 - data_len_len - 1 - unpack_size_len - 1 - data_buf_len - 1 - crc_len_len - 1;
-
-    // the attributes of a filter that ran before the compressor follow the coder attributes
-
-    const int attributes_left = (const u8 *) line_buf + line_len - coder_attributes_pos;
-
-    filter_attributes_pos = (u8 *) hc_strchr_next (coder_attributes_pos, attributes_left, '$');
-
-    if (filter_attributes_pos != NULL)
+    while (tails < 3)
     {
-      coder_attributes_len  = filter_attributes_pos - coder_attributes_pos;
-      filter_attributes_len = attributes_left - coder_attributes_len - 1;
+      const u8 *next = (const u8 *) hc_strchr_next (at, (size_t) (line_end - at), '$');
 
-      filter_attributes_pos++;
+      tail[tails]     = at;
+      tail_len[tails] = (next == NULL) ? (u32) (line_end - at) : (u32) (next - at);
+
+      tails++;
+
+      if (next == NULL) break;
+
+      at = next + 1;
     }
 
-    crc_len = hc_strtoul ((const char *) crc_len_pos, NULL, 10);
+    if ((tails == 3) && (hc_strchr_next (tail[2], tail_len[2], '$') != NULL)) return (PARSER_SEPARATOR_UNMATCHED);
   }
 
-  /**
-   * verify some data
-   */
+  const u32 data_type   = hc_strtoul ((const char *) token.buf[1], NULL, 10);
+  const u32 power       = hc_strtoul ((const char *) token.buf[2], NULL, 10);
+  const u32 salt_len    = hc_strtoul ((const char *) token.buf[3], NULL, 10);
+  const u32 iv_len      = hc_strtoul ((const char *) token.buf[5], NULL, 10);
+  const u32 crc         = hc_strtoul ((const char *) token.buf[7], NULL, 10);
+  const u32 data_len    = hc_strtoul ((const char *) token.buf[8], NULL, 10);
+  const u32 unpack_size = hc_strtoul ((const char *) token.buf[9], NULL, 10);
 
-  // 0x80 marks data that 7z2hashcat truncated for a padding attack, which hashcat does not do
+  // 0x80 marks data that 7z2hashcat cut down to its last blocks, which leaves nothing to test
+  // but the padding
 
   if (data_type == 0x80) return (PARSER_SEVEN_ZIP_TRUNCATED);
 
-  // the lower 4 bits name the compressor, the upper 4 bits a filter that ran before it
+  if (data_type > 0xff) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
 
-  const int coder  = data_type & 0x0f;
-  const int filter = data_type >> 4;
+  const u32 coder  = data_type & 0x0f;
+  const u32 filter = data_type >> 4;
 
-  if ((coder != 0) && (coder != 1) && (coder != 2) && (coder != 7) && (coder != 8))
-  {
-    return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
-  }
+  if ((coder != 0) && (sz_legacy_packer (coder) == SZ_KIND_NONE)) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
 
-  // liblzma decodes a filter in one chain with LZMA1 or LZMA2, so it cannot follow another compressor
-
-  if (filter != 0)
-  {
-    if ((coder != 1) && (coder != 2)) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
-
-    if (seven_zip_filter_id (filter) == HC_LZMA_VLI_UNKNOWN) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
-  }
-
-  if ((coder == 8) && (hc_zstd_available () == false))
-  {
-    return (PARSER_ZSTD_UNAVAILABLE);
-  }
+  if ((filter != 0) && (sz_legacy_filter (filter) == SZ_KIND_NONE)) return (PARSER_SEVEN_ZIP_METHOD_UNSUPPORTED);
 
   if (salt_len != 0) return (PARSER_SALT_VALUE);
 
-  if ((data_len * 2) != data_buf_len) return (PARSER_SALT_VALUE);
+  if (iv_len > 16) return (PARSER_SALT_VALUE);
 
-  if (data_len > 0x200000 * 4) return (PARSER_SALT_VALUE);
+  if ((data_len * 2) != data_hex) return (PARSER_SALT_VALUE);
 
-  if (unpack_size > data_len) return (PARSER_SALT_VALUE);
+  if ((data_len == 0) || (data_len > SZ_DATA_MAX)) return (PARSER_SALT_VALUE);
 
-  if (is_compressed == true)
+  if (is_valid_hex_string (data_pos, data_hex) == false) return (PARSER_SALT_ENCODING);
+
+  seven_zip->legacy     = 1;
+  seven_zip->power      = power;
+  seven_zip->has_crc    = SZ_CHECK_CRC;
+  seven_zip->crc        = crc;
+  seven_zip->crc_len    = unpack_size;
+  seven_zip->stream_cnt = 1;
+
+  sz_stream_t *stream = &seven_zip->streams[0];
+
+  stream->iv_len = iv_len;
+
+  for (u32 i = 0; i < iv_len; i++) stream->iv[i] = hex_to_u8 (&token.buf[6][i * 2]);
+
+  stream->packed   = data_len;
+  stream->unpacked = unpack_size;
+
+  if (data_type != 0)
   {
-    if (crc_len_len > 7) return (PARSER_SALT_VALUE);
+    // a packer or a filter: the length the CRC-32 covers is not the length of the stream
 
-    if (coder_attributes_len > 10) return (PARSER_SALT_VALUE);
+    if (tails < 2) return (PARSER_SEPARATOR_UNMATCHED);
 
-    if ((coder_attributes_len % 2) != 0) return (PARSER_SALT_VALUE);
+    if (sz_number (tail[0], tail_len[0], 10, &seven_zip->crc_len) == false) return (PARSER_SALT_VALUE);
 
-    // we should be more strict about the needed attribute_len:
-
-    if (coder == 1) // LZMA1
+    if (coder != 0)
     {
-      if ((coder_attributes_len / 2) != 5) return (PARSER_SALT_VALUE);
+      sz_coder_t *packer = &stream->chain[stream->chain_cnt++];
+
+      packer->kind = sz_legacy_packer (coder);
+
+      if (sz_bytes (tail[1], tail_len[1], packer->props, SZ_PROPS_MAX, &packer->props_len) == false) return (PARSER_SALT_VALUE);
+
+      if ((packer->kind == SZ_KIND_LZMA)  && (packer->props_len != 5)) return (PARSER_SALT_VALUE);
+      if ((packer->kind == SZ_KIND_LZMA2) && (packer->props_len != 1)) return (PARSER_SALT_VALUE);
+      if ((packer->kind == SZ_KIND_PPMD)  && (packer->props_len != 5)) return (PARSER_SALT_VALUE);
     }
-    else if (coder == 2) // LZMA2
+
+    if (filter != 0)
     {
-      if ((coder_attributes_len / 2) != 1) return (PARSER_SALT_VALUE);
+      sz_coder_t *conv = &stream->chain[stream->chain_cnt++];
+
+      conv->kind = sz_legacy_filter (filter);
+
+      if (tails == 3)
+      {
+        if (sz_bytes (tail[2], tail_len[2], conv->props, SZ_PROPS_MAX, &conv->props_len) == false) return (PARSER_SALT_VALUE);
+      }
+
+      if ((conv->kind == SZ_KIND_DELTA) && (conv->props_len != 1)) return (PARSER_SALT_VALUE);
+
+      if ((conv->kind != SZ_KIND_DELTA) && (conv->props_len != 0) && (conv->props_len != 4)) return (PARSER_SALT_VALUE);
     }
-
-    // delta stores its distance in one byte, a branch converter nothing or a 4 byte start offset
-
-    if ((filter == 0) && (filter_attributes_pos != NULL)) return (PARSER_SALT_VALUE);
-
-    if ((filter_attributes_len % 2) != 0) return (PARSER_SALT_VALUE);
-
-    if (filter == 9)
+    else if (tails == 3)
     {
-      if ((filter_attributes_len / 2) != 1) return (PARSER_SALT_VALUE);
-    }
-    else if (filter != 0)
-    {
-      if (((filter_attributes_len / 2) != 0) && ((filter_attributes_len / 2) != 4)) return (PARSER_SALT_VALUE);
+      return (PARSER_SALT_VALUE);
     }
   }
 
-  /**
-   * store data
-   */
+  stream->data_len = data_len;
+  stream->data     = (u8 *) hcmalloc (data_len);
 
-  seven_zip->data_type = data_type;
+  if (stream->data == NULL) return (PARSER_HAVE_ERRNO);
 
-  seven_zip->iv_buf[0] = hex_to_u32 (iv_buf_pos +  0);
-  seven_zip->iv_buf[1] = hex_to_u32 (iv_buf_pos +  8);
-  seven_zip->iv_buf[2] = hex_to_u32 (iv_buf_pos + 16);
-  seven_zip->iv_buf[3] = hex_to_u32 (iv_buf_pos + 24);
+  for (u32 i = 0; i < data_len; i++) stream->data[i] = hex_to_u8 (&data_pos[i * 2]);
 
-  seven_zip->iv_len = iv_len;
+  return sz_finish_line (hashconfig, digest, salt, seven_zip, line_buf, line_len);
+}
 
-  if (salt_buf_len >= (int) sizeof (seven_zip->salt_buf)) return (PARSER_SALT_LENGTH);
+static int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED void *digest_buf, MAYBE_UNUSED salt_t *salt, MAYBE_UNUSED void *esalt_buf, MAYBE_UNUSED void *hook_salt_buf, MAYBE_UNUSED hashinfo_t *hash_info, const char *line_buf, MAYBE_UNUSED const int line_len)
+{
+  u32 *digest = (u32 *) digest_buf;
 
-  memcpy (seven_zip->salt_buf, salt_buf_pos, salt_buf_len); // we just need that for later ascii_digest()
+  seven_zip_hook_salt_t *seven_zip = (seven_zip_hook_salt_t *) hook_salt_buf;
 
-  seven_zip->salt_len = 0;
+  memset (seven_zip, 0, sizeof (seven_zip_hook_salt_t));
 
-  seven_zip->crc = crc;
-
-  // The data field is stored as u32 words of 8 hex characters each. Its length is only checked
-  // against data_len, which makes it even but not a multiple of 8, so a short last word left
-  // hex_to_u32 reading the characters that follow the token. The tail is padded instead. Real 7-Zip
-  // data is a whole number of AES blocks, so no hash that parses today reaches the second branch.
-
-  for (int i = 0, j = 0; j < data_buf_len; i += 1, j += 8)
+  if ((line_len >= 5) && (memcmp (line_buf, SIGNATURE_SEVEN_ZIP_NEW, 5) == 0))
   {
-    const int rem = data_buf_len - j;
-
-    if (rem >= 8)
-    {
-      seven_zip->data_buf[i] = hex_to_u32 (data_buf_pos + j);
-
-      continue;
-    }
-
-    u8 tmp_buf[8] = { '0', '0', '0', '0', '0', '0', '0', '0' };
-
-    memcpy (tmp_buf, data_buf_pos + j, rem);
-
-    seven_zip->data_buf[i] = hex_to_u32 (tmp_buf);
+    return sz_decode_new (hashconfig, digest, salt, seven_zip, line_buf, line_len);
   }
 
-  seven_zip->data_len = data_len;
+  return sz_decode_legacy (hashconfig, digest, salt, seven_zip, line_buf, line_len);
+}
 
-  seven_zip->unpack_size = unpack_size;
+static int sz_put (char *line_buf, const int line_size, int pos, const char *fmt, ...)
+{
+  if (pos >= line_size - 1) return line_size - 1;
 
-  seven_zip->crc_len = crc_len;
+  va_list ap;
 
-  memset (seven_zip->coder_attributes, 0, sizeof (seven_zip->coder_attributes));
+  va_start (ap, fmt);
 
-  seven_zip->coder_attributes_len = 0;
+  const int n = vsnprintf (line_buf + pos, (size_t) (line_size - pos), fmt, ap);
 
-  if (is_compressed == 1)
+  va_end (ap);
+
+  pos += n;
+
+  // vsnprintf returns the length it would have written, so a line that does not fit is cut here
+
+  return (pos >= line_size) ? line_size - 1 : pos;
+}
+
+static int sz_put_hex (char *line_buf, const int line_size, int pos, const u8 *data, const u32 len)
+{
+  for (u32 i = 0; i < len; i++)
   {
-    if (is_valid_hex_string (coder_attributes_pos, coder_attributes_len) == false) return (PARSER_SALT_ENCODING);
+    if (pos + 2 >= line_size) return line_size - 1;
 
-    for (u32 i = 0, j = 0; j < coder_attributes_len; i += 1, j += 2)
-    {
-      seven_zip->coder_attributes[i] = hex_to_u8 (&coder_attributes_pos[j]);
+    u8_to_hex (data[i], (u8 *) line_buf + pos);
 
-      seven_zip->coder_attributes_len++;
-    }
+    pos += 2;
   }
 
-  memset (seven_zip->filter_attributes, 0, sizeof (seven_zip->filter_attributes));
+  line_buf[pos] = 0;
 
-  seven_zip->filter_attributes_len = 0;
+  return pos;
+}
 
-  if (filter_attributes_len > 0)
+static int sz_put_chain (char *line_buf, const int line_size, int pos, const sz_coder_t *chain, const u32 chain_cnt)
+{
+  for (u32 i = 0; i < chain_cnt; i++)
   {
-    if (is_valid_hex_string (filter_attributes_pos, filter_attributes_len) == false) return (PARSER_SALT_ENCODING);
+    const sz_coder_id_t *id = sz_id_of (chain[i].kind);
 
-    for (u32 i = 0, j = 0; j < filter_attributes_len; i += 1, j += 2)
-    {
-      seven_zip->filter_attributes[i] = hex_to_u8 (&filter_attributes_pos[j]);
+    if (i > 0) pos = sz_put (line_buf, line_size, pos, ",");
 
-      seven_zip->filter_attributes_len++;
-    }
+    pos = sz_put_hex (line_buf, line_size, pos, id->id, id->id_len);
+    pos = sz_put     (line_buf, line_size, pos, "/");
+    pos = sz_put_hex (line_buf, line_size, pos, chain[i].props, chain[i].props_len);
+    pos = sz_put     (line_buf, line_size, pos, "/%" PRIx64, chain[i].size);
   }
 
-  // normally: crc_len <= unpacksize <= packsize (== data_len)
-
-  int aes_len = data_len;
-
-  if (crc_len != 0) // it is 0 only in case of uncompressed data or truncated data
-  {
-    // in theory we could just use crc_len, but sometimes (very rare) the compressed data
-    // is larger than the original data! (because of some additional bytes from lzma/headers)
-    // the +0.5 is used to round up (just to be sure we don't truncate)
-
-    // a filter also needs the bytes after the first file, see seven_zip_filtered_crc ()
-
-    const int needed_len = (filter != 0) ? crc_len + SEVEN_ZIP_FILTER_LOOKAHEAD : crc_len;
-
-    if (coder == 1) // LZMA1 uses more bytes
-    {
-      aes_len = 32.5f + (float) needed_len * 1.05f; // +5% max (only for small random inputs)
-    }
-    else if (coder == 2) // LZMA2 is more clever (e.g. uncompressed chunks)
-    {
-      aes_len =  4.5f + (float) needed_len * 1.01f; // +1% max (only for small random inputs)
-    }
-
-    // just make sure we never go beyond the data_len limit itself
-
-    aes_len = MIN (aes_len, data_len);
-  }
-
-  seven_zip->aes_len = aes_len;
-
-  // real salt
-
-  salt->salt_buf[0] = seven_zip->data_buf[0];
-  salt->salt_buf[1] = seven_zip->data_buf[1];
-  salt->salt_buf[2] = seven_zip->data_buf[2];
-  salt->salt_buf[3] = seven_zip->data_buf[3];
-
-  salt->salt_len = 16;
-
-  salt->salt_sign[0] = data_type;
-
-  // 7-Zip NumCyclesPower can be 0-63 per spec, but salt_iter is u32
-  // and the kernel dispatch loop is u32-bound, so we cannot support > 31.
-
-  if (iter > 31) return (PARSER_SALT_ITERATION);
-
-  salt->salt_iter = 1u << iter;
-
-  /**
-   * digest
-   */
-
-  digest[0] = crc;
-  digest[1] = 0;
-  digest[2] = 0;
-  digest[3] = 0;
-
-  return (PARSER_OK);
+  return pos;
 }
 
 static int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const void *digest_buf, MAYBE_UNUSED const salt_t *salt, MAYBE_UNUSED const void *esalt_buf, MAYBE_UNUSED const void *hook_salt_buf, MAYBE_UNUSED const hashinfo_t *hash_info, char *line_buf, MAYBE_UNUSED const int line_size)
 {
   const seven_zip_hook_salt_t *seven_zip = (const seven_zip_hook_salt_t *) hook_salt_buf;
 
-  const u32 data_len = seven_zip->data_len;
+  int pos = 0;
 
-  char *data_buf = (char *) hcmalloc ((data_len * 2) + 1);
+  pos = sz_put     (line_buf, line_size, pos, "%s%u*", SIGNATURE_SEVEN_ZIP_NEW, seven_zip->power);
+  pos = sz_put_hex (line_buf, line_size, pos, seven_zip->salt, seven_zip->salt_len);
+  pos = sz_put     (line_buf, line_size, pos, "*");
 
-  for (u32 i = 0, j = 0; i < data_len; i += 1, j += 2)
+  if (seven_zip->has_crc == SZ_CHECK_CRC)    pos = sz_put (line_buf, line_size, pos, "%08x", seven_zip->crc);
+  if (seven_zip->has_crc == SZ_CHECK_HEADER) pos = sz_put (line_buf, line_size, pos, "header");
+
+  pos = sz_put       (line_buf, line_size, pos, "*%" PRIx64 "*", seven_zip->crc_len);
+  pos = sz_put_chain (line_buf, line_size, pos, seven_zip->join, seven_zip->join_cnt);
+  pos = sz_put       (line_buf, line_size, pos, "*%u", seven_zip->stream_cnt);
+
+  for (u32 s = 0; s < seven_zip->stream_cnt; s++)
   {
-    const u8 *ptr = (const u8 *) seven_zip->data_buf;
+    const sz_stream_t *stream = &seven_zip->streams[s];
 
-    snprintf (data_buf + j, (data_len * 2) + 1 - j, "%02x", ptr[i]);
+    pos = sz_put       (line_buf, line_size, pos, "*");
+    pos = sz_put_hex   (line_buf, line_size, pos, stream->iv, stream->iv_len);
+    pos = sz_put       (line_buf, line_size, pos, "*%" PRIx64 "*%" PRIx64 "*", stream->packed, stream->unpacked);
+    pos = sz_put_chain (line_buf, line_size, pos, stream->chain, stream->chain_cnt);
+    pos = sz_put       (line_buf, line_size, pos, "*");
+    pos = sz_put_hex   (line_buf, line_size, pos, stream->data, stream->data_len);
   }
 
-  u32 salt_iter = salt->salt_iter;
+  pos = sz_put (line_buf, line_size, pos, "%s", SIGNATURE_SEVEN_ZIP_STOP);
 
-  u32 iv[4];
-
-  iv[0] = byte_swap_32 (seven_zip->iv_buf[0]);
-  iv[1] = byte_swap_32 (seven_zip->iv_buf[1]);
-  iv[2] = byte_swap_32 (seven_zip->iv_buf[2]);
-  iv[3] = byte_swap_32 (seven_zip->iv_buf[3]);
-
-  u32 iv_len = seven_zip->iv_len;
-
-  u32 cost = 0; // the log2 () of salt_iter
-
-  while (salt_iter >>= 1)
-  {
-    cost++;
-  }
-
-  int bytes_written = snprintf (line_buf, line_size, "%s%u$%u$%u$%s$%u$%08x%08x%08x%08x$%u$%u$%u$%s",
-    SIGNATURE_SEVEN_ZIP,
-    salt->salt_sign[0],
-    cost,
-    seven_zip->salt_len,
-    (const char *) seven_zip->salt_buf,
-    iv_len,
-    iv[0],
-    iv[1],
-    iv[2],
-    iv[3],
-    seven_zip->crc,
-    seven_zip->data_len,
-    seven_zip->unpack_size,
-    data_buf);
-
-  // snprintf returns the length it would have written and not the length it wrote, so a call that
-  // truncates leaves bytes_written past the end of line_buf. The next call would then start out of
-  // bounds and be handed a negative size, which is converted to an enormous one because snprintf
-  // takes a size_t. Clamping after every call is what keeps the accumulator inside the buffer.
-
-  if (bytes_written >= line_size) bytes_written = line_size - 1;
-
-  if (seven_zip->data_type > 0)
-  {
-    bytes_written += snprintf (line_buf + bytes_written, line_size - bytes_written, "$%u$", seven_zip->crc_len);
-
-    if (bytes_written >= line_size) bytes_written = line_size - 1;
-
-    const u8 *ptr = (const u8 *) seven_zip->coder_attributes;
-
-    for (u32 i = 0; i < seven_zip->coder_attributes_len; i++)
-    {
-      bytes_written += snprintf (line_buf + bytes_written, line_size - bytes_written, "%02x", ptr[i]);
-
-      if (bytes_written >= line_size) bytes_written = line_size - 1;
-    }
-
-    // 7z2hashcat only writes the field for filter attributes when there are any
-
-    if (seven_zip->filter_attributes_len > 0)
-    {
-      bytes_written += snprintf (line_buf + bytes_written, line_size - bytes_written, "$");
-
-      if (bytes_written >= line_size) bytes_written = line_size - 1;
-
-      for (u32 i = 0; i < seven_zip->filter_attributes_len; i++)
-      {
-        bytes_written += snprintf (line_buf + bytes_written, line_size - bytes_written, "%02x", seven_zip->filter_attributes[i]);
-
-        if (bytes_written >= line_size) bytes_written = line_size - 1;
-      }
-    }
-  }
-
-  hcfree (data_buf);
-
-  return bytes_written;
+  return pos;
 }
 
 void module_init (module_ctx_t *module_ctx)
