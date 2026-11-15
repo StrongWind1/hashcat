@@ -3706,10 +3706,11 @@ GPG_GEN_MODES      = {17010, 17020, 17030, 17040, 17050}
 PKZIP_GEN_MODES    = {17200, 17210, 17220, 17225, 17230}
 RAR_GEN_MODES      = {12500, 13000, 23700, 23800}
 SEVENZIP_GEN_MODES = {11600, 13600}
+SEVENZIP_LINE_GEN_MODES = {46900}
 PDF_GEN_MODES      = {10400, 10500, 10700}
 SSH_GEN_MODES      = {22931}
 
-ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | RAR_GEN_MODES | SEVENZIP_GEN_MODES
+ARCHIVE_GEN_MODES = (GPG_GEN_MODES | PKZIP_GEN_MODES | RAR_GEN_MODES | SEVENZIP_GEN_MODES | SEVENZIP_LINE_GEN_MODES
                      | PDF_GEN_MODES | SSH_GEN_MODES)
 
 # The container families -g can build. 14600 (legacy LUKS) and the CryptoLoop modes have no generator.
@@ -4458,6 +4459,81 @@ def gen_rar(args, mode, tmp):
   archive_crack(args, mode, hash_file, "RAR-container %s" % label, tmp, fast=False)
 
 
+def gen_sevenzip_lines(args, mode, tmp):
+  # Real 7z archives for the mode that reads $7z$*...$/7z$ lines. What the mode does with a
+  # candidate depends on how the folder was written, so it is built several ways: stored, with
+  # every packer 7-Zip has, with an encrypted header, with two files in one folder, where the
+  # CRC-32 covers the first, and with BCJ2, which splits a program into four streams that are
+  # each encrypted. The hash is read back with tools/7z2hashcat.py.
+  sevenzip = _tool("SEVENZIP_BIN", "7z")
+
+  if not shutil.which(sevenzip):
+    gen_skip(mode, "7z not found (apt install 7zip, or set SEVENZIP_BIN=/path/to/7z)")
+    return
+
+  sz2hashcat = os.path.join(TDIR, "7z2hashcat.py")
+
+  pw   = CONTAINER_PASSWORD.decode("utf-8")
+  sdir = os.path.join(tmp, "7zlines_%d" % mode)
+  os.makedirs(sdir, exist_ok=True)
+
+  text = os.path.join(sdir, "text.txt")
+  tiny = os.path.join(sdir, "a_tiny.txt")
+  prog = os.path.join(sdir, "prog.exe")
+
+  with open(text, "wb") as fh:
+    fh.write(b"pattern the quick brown fox jumps over the lazy dog " * 160)
+
+  with open(tiny, "wb") as fh:
+    fh.write(b"twenty-eight bytes of text.\n\n")
+
+  # any program does for a branch converter. The shell is small, so its four BCJ2 streams fit a line
+
+  shutil.copyfile(os.path.realpath(shutil.which("sh") or sys.executable), prog)
+
+  variants = [
+    ("stored",         ["-m0=Copy"],               [text]),
+    ("lzma",           ["-m0=LZMA"],               [text]),
+    ("lzma2",          ["-m0=LZMA2"],              [text]),
+    ("ppmd",           ["-m0=PPMd"],               [text]),
+    ("bzip2",          ["-m0=BZip2"],              [text]),
+    ("deflate",        ["-m0=Deflate"],            [text]),
+    ("deflate64",      ["-m0=Deflate64"],          [text]),
+    ("header",         ["-mhe=on"],                [text]),
+    ("solid",          ["-ms=on"],                 [tiny, text]),
+    ("bcj-lzma2",      ["-m0=BCJ", "-m1=LZMA2"],   [prog]),
+    ("bcj2-lzma2",     ["-m0=BCJ2", "-m1=LZMA2"],  [prog]),
+    ("arm64-lzma2",    ["-m0=ARM64", "-m1=LZMA2"], [prog]),
+  ]
+
+  for label, opts, files in variants:
+    archive = os.path.join(sdir, "%d_%s.7z" % (mode, label))
+
+    # 7-Zip adds to an archive that is already there, and refuses to when it is encrypted
+
+    if os.path.exists(archive):
+      os.remove(archive)
+
+    rc, out = gen_run([sevenzip, "a"] + opts + ["-p" + pw, archive] + files)
+
+    if not os.path.exists(archive) or os.path.getsize(archive) == 0:
+      said = out.decode("utf-8", "replace").strip().splitlines()
+
+      gen_error(mode, "%s failed to create %s: %s" % (sevenzip, archive, said[-1] if said else "no output"))
+      continue
+
+    rc, out = gen_run([sys.executable, sz2hashcat, "-q", archive])
+    token   = _john_extract(out, r"\$7z\$\*\S+\$/7z\$")
+
+    if token is None:
+      gen_error(mode, "7z2hashcat.py produced no hash for %s" % archive)
+      continue
+
+    hash_file = os.path.join(sdir, "%d_%s.hash" % (mode, label))
+    write_hash(hash_file, token)
+    archive_crack(args, mode, hash_file, "7z-container %s" % label, tmp, fast=False)
+
+
 def gen_sevenzip(args, mode, tmp):
   # 11600 from a 7-Zip archive (7z2john.pl), 13600 WinZip AES from a zip (zip2john). 11600 is built
   # four ways because the mode decrypts and decompresses a block and checks a CRC, so the codec is
@@ -4629,6 +4705,7 @@ ARCHIVE_GENERATORS = [
   (GPG_GEN_MODES,      gen_gpg),
   (RAR_GEN_MODES,      gen_rar),
   (SEVENZIP_GEN_MODES, gen_sevenzip),
+  (SEVENZIP_LINE_GEN_MODES, gen_sevenzip_lines),
   (PDF_GEN_MODES,      gen_pdf),
   (SSH_GEN_MODES,      gen_ssh),
 ]
