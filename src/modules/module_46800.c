@@ -144,13 +144,22 @@ typedef struct rar5_hook_salt
 
 // The buffers one hook thread keeps between candidates, allocated on first use.
 
-typedef struct rar5_hook_extra
+typedef struct rar5_work
 {
   u8 *plain;
 
   rar5_buffers_t buffers;
 
   u64 unsupported_cnt;
+
+} rar5_work_t;
+
+// Hook thread i of every device is handed the same one of these, and the devices run at the same
+// time, so each device has a set of buffers of its own.
+
+typedef struct rar5_hook_extra
+{
+  rar5_work_t work[DEVICES_MAX];
 
 } rar5_hook_extra_t;
 
@@ -252,15 +261,20 @@ static bool module_hook_extra_param_term (MAYBE_UNUSED hashcat_ctx_t *hashcat_ct
 {
   rar5_hook_extra_t *extra = (rar5_hook_extra_t *) hook_extra_param;
 
-  hcfree (extra->plain);
+  for (u32 d = 0; d < DEVICES_MAX; d++)
+  {
+    rar5_work_t *work = &extra->work[d];
 
-  extra->plain = NULL;
+    hcfree (work->plain);
 
-  rar5_buffers_free (&extra->buffers);
+    work->plain = NULL;
 
-  rar5_unsupported_total += extra->unsupported_cnt;
+    rar5_buffers_free (&work->buffers);
 
-  extra->unsupported_cnt = 0;
+    rar5_unsupported_total += work->unsupported_cnt;
+
+    work->unsupported_cnt = 0;
+  }
 
   rar5_term_calls++;
 
@@ -338,7 +352,9 @@ static void module_hook23 (hc_device_param_t *device_param, const void *hook_ext
 
   // The interface hands this over as const, but it belongs to this module and this hook thread.
 
-  rar5_hook_extra_t *extra = (rar5_hook_extra_t *) hook_extra_param;
+  rar5_hook_extra_t *shared = (rar5_hook_extra_t *) hook_extra_param;
+
+  rar5_work_t *extra = &shared->work[device_param->device_id];
 
   if (extra->plain == NULL) extra->plain = (u8 *) hcmalloc (RAR50_DATA_MAX + 16);
 

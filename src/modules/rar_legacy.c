@@ -1538,10 +1538,19 @@ typedef struct rar_legacy_hook_salt
 
 // One decrypted copy of the entry and one window per hook thread, allocated on first use.
 
-typedef struct rar_legacy_hook_extra
+typedef struct rar_legacy_work
 {
   u8 *plain;
   u8 *win;
+
+} rar_legacy_work_t;
+
+// Hook thread i of every device is handed the same one of these, and the devices run at the same
+// time, so each device has a set of buffers of its own.
+
+typedef struct rar_legacy_hook_extra
+{
+  rar_legacy_work_t work[DEVICES_MAX];
 
   // what --rar20-key-setup says, for the hooks, which are not handed the options
 
@@ -1674,7 +1683,9 @@ static void rarl_hook23 (hc_device_param_t *device_param, const void *hook_extra
 
   // The interface hands this over as const, but it belongs to this module and this hook thread.
 
-  rar_legacy_hook_extra_t *extra = (rar_legacy_hook_extra_t *) hook_extra_param;
+  rar_legacy_hook_extra_t *shared = (rar_legacy_hook_extra_t *) hook_extra_param;
+
+  rar_legacy_work_t *extra = &shared->work[device_param->device_id];
 
   if (extra->plain == NULL) extra->plain = (u8 *) hcmalloc (RARL_DATA_MAX + 16);
   if (extra->win   == NULL) extra->win   = (u8 *) hcmalloc (RARL_WIN_SIZE);
@@ -1731,11 +1742,14 @@ static bool rarl_hook_extra_param_term (void *hook_extra_param)
 {
   rar_legacy_hook_extra_t *extra = (rar_legacy_hook_extra_t *) hook_extra_param;
 
-  hcfree (extra->plain);
-  hcfree (extra->win);
+  for (u32 d = 0; d < DEVICES_MAX; d++)
+  {
+    hcfree (extra->work[d].plain);
+    hcfree (extra->work[d].win);
 
-  extra->plain = NULL;
-  extra->win   = NULL;
+    extra->work[d].plain = NULL;
+    extra->work[d].win   = NULL;
+  }
 
   return true;
 }
