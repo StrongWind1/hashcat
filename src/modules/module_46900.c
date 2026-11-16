@@ -184,7 +184,7 @@ typedef struct seven_zip_hook_salt
 
 } seven_zip_hook_salt_t;
 
-// The buffers one hook thread keeps between candidates, allocated on first use.
+// The buffers one hook thread keeps between candidates for one device, allocated on first use.
 
 typedef struct sz_buf
 {
@@ -193,7 +193,7 @@ typedef struct sz_buf
 
 } sz_buf_t;
 
-typedef struct seven_zip_hook_extra
+typedef struct sz_work
 {
   sz_buf_t plain[SZ_STREAMS_MAX];
   sz_buf_t stage[SZ_STREAMS_MAX];
@@ -201,6 +201,15 @@ typedef struct seven_zip_hook_extra
   sz_buf_t spare;
 
   sz_mem_t mem;
+
+} sz_work_t;
+
+// Hook thread i of every device is handed the same one of these, and the devices run at the same
+// time, so each device has a set of buffers of its own.
+
+typedef struct seven_zip_hook_extra
+{
+  sz_work_t *work[DEVICES_MAX];
 
 } seven_zip_hook_extra_t;
 
@@ -244,16 +253,25 @@ static bool module_hook_extra_param_term (MAYBE_UNUSED hashcat_ctx_t *hashcat_ct
 {
   seven_zip_hook_extra_t *extra = (seven_zip_hook_extra_t *) hook_extra_param;
 
-  for (u32 i = 0; i < SZ_STREAMS_MAX; i++)
+  for (u32 d = 0; d < DEVICES_MAX; d++)
   {
-    free (extra->plain[i].ptr);
-    free (extra->stage[i].ptr);
+    sz_work_t *work = extra->work[d];
+
+    if (work == NULL) continue;
+
+    for (u32 i = 0; i < SZ_STREAMS_MAX; i++)
+    {
+      free (work->plain[i].ptr);
+      free (work->stage[i].ptr);
+    }
+
+    free (work->joined.ptr);
+    free (work->spare.ptr);
+
+    sz_mem_free (&work->mem);
+
+    free (work);
   }
-
-  free (extra->joined.ptr);
-  free (extra->spare.ptr);
-
-  sz_mem_free (&extra->mem);
 
   memset (extra, 0, sizeof (seven_zip_hook_extra_t));
 
@@ -371,7 +389,7 @@ static bool sz_cheap_tests (const u32 *rdk, const sz_stream_t *stream)
 // own, a filter works in place. want is how much of the last coder's output is needed. Returns how
 // the last packer stopped, and where the result is.
 
-static int sz_run_chain (seven_zip_hook_extra_t *extra, const u32 s, const sz_coder_t *chain, const u32 chain_cnt, u8 *in, size_t in_len, const bool whole, const size_t want, u8 **out, size_t *out_len)
+static int sz_run_chain (sz_work_t *extra, const u32 s, const sz_coder_t *chain, const u32 chain_cnt, u8 *in, size_t in_len, const bool whole, const size_t want, u8 **out, size_t *out_len)
 {
   u8    *cur     = in;
   size_t cur_len = in_len;
@@ -466,7 +484,7 @@ static int sz_run_chain (seven_zip_hook_extra_t *extra, const u32 s, const sz_co
 #define SZ_PROBE_IN  4096
 #define SZ_PROBE_OUT 65536
 
-static bool sz_probe (seven_zip_hook_extra_t *extra, const u32 *rdk, const sz_stream_t *stream, const u32 s, const u32 kind)
+static bool sz_probe (sz_work_t *extra, const u32 *rdk, const sz_stream_t *stream, const u32 s, const u32 kind)
 {
   if (stream->data_len <= SZ_PROBE_IN * 4) return true;
 
@@ -510,7 +528,7 @@ static bool sz_finish (const seven_zip_hook_salt_t *seven_zip, const sz_coder_t 
   return sz_crc_matches (seven_zip, data, len);
 }
 
-static bool sz_test_candidate (seven_zip_hook_extra_t *extra, const seven_zip_hook_salt_t *seven_zip, const u32 *rdk, const bool deflate64)
+static bool sz_test_candidate (sz_work_t *extra, const seven_zip_hook_salt_t *seven_zip, const u32 *rdk, const bool deflate64)
 {
   // nothing is decrypted in full before every stream has passed what costs one block
 
@@ -705,7 +723,15 @@ static void module_hook23 (hc_device_param_t *device_param, const void *hook_ext
 
   // The interface hands this over as const, but it belongs to this module and this hook thread.
 
-  seven_zip_hook_extra_t *extra = (seven_zip_hook_extra_t *) hook_extra_param;
+  seven_zip_hook_extra_t *shared = (seven_zip_hook_extra_t *) hook_extra_param;
+
+  hook_item->hook_success = 0;
+
+  if (shared->work[device_param->device_id] == NULL) shared->work[device_param->device_id] = (sz_work_t *) calloc (1, sizeof (sz_work_t));
+
+  sz_work_t *extra = shared->work[device_param->device_id];
+
+  if (extra == NULL) return;
 
   AES_KEY aes_key;
 
