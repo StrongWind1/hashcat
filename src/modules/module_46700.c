@@ -113,7 +113,7 @@ typedef struct rar3_hook_salt
 // The buffers one hook thread keeps between candidates, allocated on the first candidate that
 // needs them, so a run over header-encrypted hashes never pays for them.
 
-typedef struct rar3_hook_extra
+typedef struct rar3_work
 {
   u8 *stream;
 
@@ -123,6 +123,15 @@ typedef struct rar3_hook_extra
   // not implement.
 
   u64 unsupported_cnt;
+
+} rar3_work_t;
+
+// Hook thread i of every device is handed the same one of these, and the devices run at the same
+// time, so each device has a set of buffers of its own.
+
+typedef struct rar3_hook_extra
+{
+  rar3_work_t work[DEVICES_MAX];
 
 } rar3_hook_extra_t;
 
@@ -227,15 +236,20 @@ static bool module_hook_extra_param_term (MAYBE_UNUSED hashcat_ctx_t *hashcat_ct
 {
   rar3_hook_extra_t *extra = (rar3_hook_extra_t *) hook_extra_param;
 
-  hcfree (extra->stream);
+  for (u32 d = 0; d < DEVICES_MAX; d++)
+  {
+    rar3_work_t *work = &extra->work[d];
 
-  extra->stream = NULL;
+    hcfree (work->stream);
 
-  rar29_buffers_free (&extra->buffers);
+    work->stream = NULL;
 
-  rar3_unsupported_total += extra->unsupported_cnt;
+    rar29_buffers_free (&work->buffers);
 
-  extra->unsupported_cnt = 0;
+    rar3_unsupported_total += work->unsupported_cnt;
+
+    work->unsupported_cnt = 0;
+  }
 
   rar3_term_calls++;
 
@@ -313,7 +327,9 @@ static void module_hook23 (hc_device_param_t *device_param, const void *hook_ext
 
   // The interface hands this over as const, but it belongs to this module and this hook thread.
 
-  rar3_hook_extra_t *extra = (rar3_hook_extra_t *) hook_extra_param;
+  rar3_hook_extra_t *shared = (rar3_hook_extra_t *) hook_extra_param;
+
+  rar3_work_t *extra = &shared->work[device_param->device_id];
 
   if (extra->stream == NULL) extra->stream = (u8 *) hcmalloc (RAR30_DATA_MAX + 16);
 
