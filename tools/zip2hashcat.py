@@ -166,7 +166,11 @@ def find_eocd(data: bytes) -> int:
     pos = len(data) - 4
 
     while True:
-        if data[pos : pos + 4] == sig and pos + 22 <= len(data) and pos + 22 + u16(data, pos + 20) == len(data):
+        if (
+            data[pos : pos + 4] == sig
+            and pos + 22 <= len(data)
+            and pos + 22 + u16(data, pos + 20) == len(data)
+        ):
             return pos
         if pos == stop:
             break
@@ -175,7 +179,9 @@ def find_eocd(data: bytes) -> int:
     raise ZipError("not a ZIP archive")
 
 
-def parse_extra(raw: bytes, entry: Entry) -> dict:
+def parse_extra(
+    raw: bytes, entry: Entry, cd_packed: int, cd_unpacked: int, cd_offset: int
+) -> dict:
     """Read the extra fields that say how an entry is encrypted, and the ZIP64 sizes."""
     zip64 = {}
     off = 0
@@ -195,12 +201,15 @@ def parse_extra(raw: bytes, entry: Entry) -> dict:
             ses = (u16(body, 2), u16(body, 4), u16(body, 6))
         elif ident == EXTRA_ZIP64 and not zip64:
             zip64["present"] = True
-            if len(body) >= 8:
-                zip64["unpacked"] = u64(body, 0)
-            if len(body) >= 16:
-                zip64["packed"] = u64(body, 8)
-            if len(body) >= 24:
-                zip64["offset"] = u64(body, 16)
+            pos = 0
+            if cd_unpacked == ZIP64_SENTINEL_32 and pos + 8 <= len(body):
+                zip64["unpacked"] = u64(body, pos)
+                pos += 8
+            if cd_packed == ZIP64_SENTINEL_32 and pos + 8 <= len(body):
+                zip64["packed"] = u64(body, pos)
+                pos += 8
+            if cd_offset == ZIP64_SENTINEL_32 and pos + 8 <= len(body):
+                zip64["offset"] = u64(body, pos)
 
         off += 4 + size
 
@@ -215,7 +224,10 @@ def parse_extra(raw: bytes, entry: Entry) -> dict:
         if entry.flags & FLAG_ENCRYPTED and entry.method == 99 and aes is not None:
             entry.encryption = CRYPT_WINZIP_AES
             entry.aes_strength, entry.aes_method = aes
-        elif (entry.flags & FLAG_STRONG_ENCRYPTION or (entry.flags & FLAG_ENCRYPTED and ses_by_version)) and ses is not None:
+        elif (
+            entry.flags & FLAG_STRONG_ENCRYPTION
+            or (entry.flags & FLAG_ENCRYPTED and ses_by_version)
+        ) and ses is not None:
             entry.encryption = CRYPT_PKWARE_SES
             entry.ses_alg, entry.ses_bits, entry.ses_flags = ses
         elif entry.flags & FLAG_ENCRYPTED:
@@ -244,10 +256,16 @@ def parse_zip(data: bytes) -> list[Entry]:
 
     # a self-extracting archive has a program in front, which shifts every offset by its size
     shift = 0
-    at_declared = cd_offset + cd_size <= len(data) and data[cd_offset : cd_offset + 4] == struct.pack("<I", CD_SIG)
+    at_declared = cd_offset + cd_size <= len(data) and data[
+        cd_offset : cd_offset + 4
+    ] == struct.pack("<I", CD_SIG)
     if not at_declared:
         actual = eocd - cd_size
-        if actual < 0 or data[actual : actual + 4] != struct.pack("<I", CD_SIG) or actual < cd_offset:
+        if (
+            actual < 0
+            or data[actual : actual + 4] != struct.pack("<I", CD_SIG)
+            or actual < cd_offset
+        ):
             raise ZipError("central directory not found")
         shift = actual - cd_offset
 
@@ -276,11 +294,25 @@ def parse_zip(data: bytes) -> list[Entry]:
             raise ZipError(f"central directory entry {index} is damaged")
 
         entry.name = data[pos + 46 : pos + 46 + name_len]
-        zip64 = parse_extra(data[pos + 46 + name_len : pos + 46 + name_len + extra_len], entry)
+        zip64 = parse_extra(
+            data[pos + 46 + name_len : pos + 46 + name_len + extra_len],
+            entry,
+            packed,
+            unpacked,
+            offset,
+        )
 
-        entry.packed = zip64.get("packed", packed) if packed == ZIP64_SENTINEL_32 else packed
-        entry.unpacked = zip64.get("unpacked", unpacked) if unpacked == ZIP64_SENTINEL_32 else unpacked
-        entry.offset = (zip64.get("offset", offset) if offset == ZIP64_SENTINEL_32 else offset) + shift
+        entry.packed = (
+            zip64.get("packed", packed) if packed == ZIP64_SENTINEL_32 else packed
+        )
+        entry.unpacked = (
+            zip64.get("unpacked", unpacked)
+            if unpacked == ZIP64_SENTINEL_32
+            else unpacked
+        )
+        entry.offset = (
+            zip64.get("offset", offset) if offset == ZIP64_SENTINEL_32 else offset
+        ) + shift
 
         entries.append(entry)
         pos += 46 + name_len + extra_len + comment_len
@@ -340,7 +372,13 @@ def really_encrypted(data: bytes, entry: Entry) -> bool:
     if start + entry.packed <= len(data):
         if unpacks_to_crc(entry, data[start : start + entry.packed]):
             return False
-        if flagged and entry.packed >= ZIPCRYPTO_HEADER and unpacks_to_crc(entry, data[start + ZIPCRYPTO_HEADER : start + entry.packed]):
+        if (
+            flagged
+            and entry.packed > ZIPCRYPTO_HEADER
+            and unpacks_to_crc(
+                entry, data[start + ZIPCRYPTO_HEADER : start + entry.packed]
+            )
+        ):
             return False
 
     return flagged
@@ -375,9 +413,15 @@ def order_zipcrypto(entry: Entry) -> tuple[int, int, int]:
     """Rank a ZipCrypto entry, best first."""
     _, proof = plan_zipcrypto(entry)
     # a deflate stream of a few bytes proves little, so it ranks with the checksums
-    tiny = proof == PROOF_STREAM and entry.method == METHOD_DEFLATE and entry.packed < 12 + 24
+    tiny = (
+        proof == PROOF_STREAM
+        and entry.method == METHOD_DEFLATE
+        and entry.packed < 12 + 24
+    )
     # and a stored entry too short for its CRC-32 to count in full ranks below the checksums
-    short = proof == PROOF_CHECKSUM and entry.packed < ZIPCRYPTO_HEADER + CRC32_FULL_BYTES
+    short = (
+        proof == PROOF_CHECKSUM and entry.packed < ZIPCRYPTO_HEADER + CRC32_FULL_BYTES
+    )
     if proof == PROOF_STREAM and not tiny:
         rank = 0
     elif short:
@@ -514,9 +558,15 @@ def line_zip3(data: bytes, entry: Entry) -> str:
 
     # the random data is wrapped with 3DES when this flag is set, whatever encrypts the file
     erd_alg = 0x6603 if flags & 0x4000 else alg_id
-    block = 0 if erd_alg == 0x6801 else (8 if erd_alg in (0x6601, 0x6602, 0x6603, 0x6609, 0x6702, 0x6720) else 16)
+    block = (
+        0
+        if erd_alg == 0x6801
+        else (8 if erd_alg in (0x6601, 0x6602, 0x6603, 0x6609, 0x6702, 0x6720) else 16)
+    )
     if block and (erd_size == 0 or erd_size % block != 0):
-        raise ZipError("its encrypted random data is not a whole number of cipher blocks")
+        raise ZipError(
+            "its encrypted random data is not a whole number of cipher blocks"
+        )
     if pos + erd_size > len(head):
         raise ZipError("its decryption header is cut short")
     erd = head[pos : pos + erd_size]
@@ -566,7 +616,11 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
         _, proof = plan_zipcrypto(entry)
         # a stream that decodes proves the password by itself; anything weaker also tests the
         # headers of the other entries
-        others = [] if all_hashes or proof == PROOF_STREAM else [other for i, other in enumerate(zipcrypto) if i != pos]
+        others = (
+            []
+            if all_hashes or proof == PROOF_STREAM
+            else [other for i, other in enumerate(zipcrypto) if i != pos]
+        )
         built = line_zip1(data, entry, others)
         if built is None:
             notes.append(f"{name_of(entry)}: its data does not lie inside the file")
@@ -579,18 +633,32 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
                 why = f"its {entry.packed} stored bytes exceed the {MAX_INLINE_DATA} a hash can carry, and a CRC-32 needs all of them"
             else:
                 why = f"hashcat has no decoder for compression method {entry.method}"
-            notes.append(f"weak hash: {name_of(entry)}: {why}, so the line tests only the check byte of {checks} header(s); about one wrong password in 256 passes each")
-        elif proof == PROOF_CHECKSUM and entry.packed - ZIPCRYPTO_HEADER < CRC32_FULL_BYTES and stored_proof_bits(entry.packed - ZIPCRYPTO_HEADER, checks) < 40:
+            notes.append(
+                f"weak hash: {name_of(entry)}: {why}, so the line tests only the check byte of {checks} header(s); about one wrong password in 256 passes each"
+            )
+        elif (
+            proof == PROOF_CHECKSUM
+            and entry.packed - ZIPCRYPTO_HEADER < CRC32_FULL_BYTES
+            and stored_proof_bits(entry.packed - ZIPCRYPTO_HEADER, checks) < 40
+        ):
             stored = entry.packed - ZIPCRYPTO_HEADER
             bits = stored_proof_bits(stored, checks)
             odds = {16: "65,536", 24: "16.8 million"}.get(bits, "4.3 billion")
-            notes.append(f"weak hash: {name_of(entry)}: it holds {stored} stored byte(s), and a CRC-32 over fewer than {CRC32_FULL_BYTES} bytes proves no more than the bytes themselves, so the line tests {bits} bits with its {checks} header(s); about one wrong password in {odds} passes")
+            notes.append(
+                f"weak hash: {name_of(entry)}: it holds {stored} stored byte(s), and a CRC-32 over fewer than {CRC32_FULL_BYTES} bytes proves no more than the bytes themselves, so the line tests {bits} bits with its {checks} header(s); about one wrong password in {odds} passes"
+            )
         elif proof == PROOF_CHECKSUM and checks == 1:
-            notes.append(f"note: {name_of(entry)} is stored and the archive has no other entry to test against, so a cracked password is confirmed by 40 bits")
+            notes.append(
+                f"note: {name_of(entry)} is stored and the archive has no other entry to test against, so a cracked password is confirmed by 40 bits"
+            )
         add(line)
 
     winzip = sorted(
-        (entry for entry in entries if entry.encryption == CRYPT_WINZIP_AES),
+        (
+            entry
+            for entry in entries
+            if entry.encryption == CRYPT_WINZIP_AES and entry.packed > 0
+        ),
         key=order_winzip_aes,
     )
 
@@ -599,8 +667,13 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
         if line2 is None:
             notes.append(f"{name_of(entry)}: its data does not lie inside the file")
             continue
-        if plan_winzip_aes(entry.aes_method, aes_ciphertext_len(entry))[1] == PROOF_HEADER_ONLY:
-            notes.append(f"weak hash: {name_of(entry)}: its {aes_ciphertext_len(entry)} bytes exceed the {MAX_INLINE_DATA} a hash can carry and method {entry.aes_method} cannot be tested from its start, so the line tests only the 16 bit verifier; about one wrong password in 65,536 passes")
+        if (
+            plan_winzip_aes(entry.aes_method, aes_ciphertext_len(entry))[1]
+            == PROOF_HEADER_ONLY
+        ):
+            notes.append(
+                f"weak hash: {name_of(entry)}: its {aes_ciphertext_len(entry)} bytes exceed the {MAX_INLINE_DATA} a hash can carry and method {entry.aes_method} cannot be tested from its start, so the line tests only the 16 bit verifier; about one wrong password in 65,536 passes"
+            )
         add(line2)
 
     ses = sorted(
@@ -610,7 +683,9 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
 
     for entry in ses if all_hashes else ses[:1]:
         if entry.ses_alg not in SES_AES:
-            notes.append(f"no hash: {name_of(entry)}: strong encryption with {SES_NAMES.get(entry.ses_alg, 'this algorithm')} is not supported by any password recovery tool")
+            notes.append(
+                f"no hash: {name_of(entry)}: strong encryption with {SES_NAMES.get(entry.ses_alg, 'this algorithm')} is not supported by any password recovery tool"
+            )
             continue
         try:
             add(line_zip3(data, entry))
@@ -625,7 +700,9 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
 
 def main() -> int:
     """Write the hash lines of every archive named on the command line."""
-    parser = argparse.ArgumentParser(description="Write the hashcat lines of password protected ZIP archives, for modes 46100 (traditional encryption), 46200 (WinZip AES) and 46300, 46310, 46320 (PKWARE strong encryption with AES-128, AES-192, AES-256).")
+    parser = argparse.ArgumentParser(
+        description="Write the hashcat lines of password protected ZIP archives, for modes 46100 (traditional encryption), 46200 (WinZip AES) and 46300, 46310, 46320 (PKWARE strong encryption with AES-128, AES-192, AES-256)."
+    )
     parser.add_argument(
         "archives",
         metavar="ARCHIVE",
