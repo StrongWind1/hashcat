@@ -69,6 +69,7 @@ HEAD3_FILE = 0x74
 
 LONG_BLOCK = 0x8000
 
+MHD_VOLUME = 0x0001
 MHD_SOLID = 0x0008
 MHD_PASSWORD = 0x0080
 
@@ -172,6 +173,7 @@ class Archive:
     version: int
     entries: list[Entry]
     header_encrypted: bool = False
+    volume: bool = False
 
 
 def u8(buf: bytes, off: int) -> int:
@@ -326,6 +328,7 @@ def parse_rar3(data: bytes) -> Archive:
             break
 
         if head_type == HEAD3_MAIN:
+            archive.volume = flags & MHD_VOLUME != 0
             if flags & MHD_PASSWORD:
                 archive.header_encrypted = True
                 break
@@ -358,7 +361,9 @@ def parse_rar3(data: bytes) -> Archive:
 # ---- RAR 5 ----
 
 
-def parse_rar5_crypt_record(data: bytes, start: int, rec_end: int, entry: Entry) -> None:
+def parse_rar5_crypt_record(
+    data: bytes, start: int, rec_end: int, entry: Entry
+) -> None:
     """Read the encryption record in the extra area of a file header."""
     cpos = start
 
@@ -406,7 +411,9 @@ def parse_rar5_crypt_record(data: bytes, start: int, rec_end: int, entry: Entry)
     entry.encryption = CRYPT_RAR50
 
 
-def parse_rar5_extra(data: bytes, hpos: int, hdr_end: int, extra_size: int, entry: Entry) -> None:
+def parse_rar5_extra(
+    data: bytes, hpos: int, hdr_end: int, extra_size: int, entry: Entry
+) -> None:
     """Read the records of the extra area, which ends the header."""
     if extra_size <= 0 or hpos >= hdr_end or extra_size > hdr_end:
         return
@@ -578,7 +585,11 @@ def parse_rar5(data: bytes) -> Archive:
             break
 
         if head_type in (HEAD5_FILE, HEAD5_SERVICE):
-            archive.entries.append(parse_rar5_file(data, hpos, hdr_end, hflags, data_size, extra_size, head_type))
+            archive.entries.append(
+                parse_rar5_file(
+                    data, hpos, hdr_end, hflags, data_size, extra_size, head_type
+                )
+            )
         elif head_type == HEAD5_EOARC:
             break
 
@@ -604,27 +615,40 @@ def score(entry: Entry) -> tuple[int, bool, bool, bool, int, int]:
     """Rank an entry as something to crack. Lower is better, and the fields compare in order."""
     unusable = (TIER_UNUSABLE, True, True, True, 0xFF, 0xFFFFFFFFFFFFFFFF)
 
+    if entry.encryption == CRYPT_RAR50 and entry.has_psw_check:
+        if entry.header_type == HEAD5_SERVICE and entry.psw_check == bytes(
+            PSWCHECK_SIZE
+        ):
+            return unusable
+        return (TIER_PSWCHECK, False, False, False, entry.lg2count, 0)
+
     if entry.split_before:
         return unusable
 
     compressed = not is_stored(entry)
     chain_dependent = entry.solid and compressed
 
-    if entry.encryption == CRYPT_RAR50 and entry.has_psw_check:
-        return (TIER_PSWCHECK, False, False, False, entry.lg2count, 0)
-
     if entry.encryption == CRYPT_NONE:
         return unusable
 
     lg2count = entry.lg2count if entry.encryption == CRYPT_RAR50 else 0
-    preferred = PREFERRED_LEGACY_DATA if entry.encryption in (CRYPT_RAR15, CRYPT_RAR20) else PREFERRED_HASH_DATA
+    preferred = (
+        PREFERRED_LEGACY_DATA
+        if entry.encryption in (CRYPT_RAR15, CRYPT_RAR20)
+        else PREFERRED_HASH_DATA
+    )
     oversize = entry.compressed_size > preferred
     too_large = entry.compressed_size > MAX_INLINE_DATA
 
     # An empty file has nothing to check a password against, an entry over the ceiling cannot be
     # carried whole, and a compressed solid member cannot be unpacked without the files before it.
 
-    unusable_entry = entry.uncompressed_size == 0 or entry.compressed_size == 0 or too_large or chain_dependent
+    unusable_entry = (
+        entry.uncompressed_size == 0
+        or entry.compressed_size == 0
+        or too_large
+        or chain_dependent
+    )
 
     return (
         TIER_UNUSABLE if unusable_entry else TIER_DATA,
@@ -650,7 +674,11 @@ def why_no_hash(entry: Entry, chain_dependent: bool) -> str:
 
 def line_rar50_pswcheck(entry: Entry) -> str | None:
     """Type 0 of $rar$50$: the password check value."""
-    if entry.encryption != CRYPT_RAR50 or not entry.has_psw_check or entry.psw_check is None:
+    if (
+        entry.encryption != CRYPT_RAR50
+        or not entry.has_psw_check
+        or entry.psw_check is None
+    ):
         return None
 
     # RAR 5.21 writes service headers with the flag set and the value zeroed, which every password
@@ -661,7 +689,11 @@ def line_rar50_pswcheck(entry: Entry) -> str | None:
 
     # The value carries its own checksum, the start of its SHA-256.
 
-    if entry.psw_check_csum is not None and hashlib.sha256(entry.psw_check).digest()[:PSWCHECK_CSUM_SIZE] != entry.psw_check_csum:
+    if (
+        entry.psw_check_csum is not None
+        and hashlib.sha256(entry.psw_check).digest()[:PSWCHECK_CSUM_SIZE]
+        != entry.psw_check_csum
+    ):
         return None
 
     return f"$rar$50$*0*{padded(entry.salt, SALT5_SIZE).hex()}*{entry.lg2count}*{bytes(IV5_SIZE).hex()}*{entry.psw_check.hex()}*0*****$/rar$"
@@ -672,7 +704,7 @@ def line_rar50_data(data: bytes, entry: Entry) -> str | None:
     start = entry.data_offset
     size = entry.compressed_size
 
-    if size > MAX_INLINE_DATA or start + size > len(data):
+    if size % 16 != 0 or size > MAX_INLINE_DATA or start + size > len(data):
         return None
 
     if entry.blake2sp is not None:
@@ -732,16 +764,40 @@ def line_rar50_header(data: bytes, archive: Archive) -> str | None:
     return None
 
 
-def line_rar30_header(data: bytes) -> str | None:
-    """Type 0 of $rar$30$: the salt and the encrypted end header, the last 24 bytes of the archive."""
-    if len(data) < 24:
+def line_rar30_header(data: bytes, archive: Archive) -> str | None:
+    """Type 0 of $rar$30$: the salt and the encrypted end block of a header-encrypted archive.
+
+    The first salt sits right after the main header. The end block starts at the last occurrence
+    of that salt toward the end of the file. For a volume the encrypted data is 32 bytes when
+    the file is long enough, otherwise 16; for a non-volume it is always 16.
+    """
+    pos = len(SIGNATURE_RAR15)
+    if pos + 7 > len(data):
         return None
-    tail = data[-24:]
-    return f"$rar$30$*0*{tail[:SALT3_SIZE].hex()}*{RAR30_HEADER_CRC:08x}*10*10*0*{tail[SALT3_SIZE:].hex()}$/rar$"
+    head_size = int.from_bytes(data[pos + 5 : pos + 7], "little")
+    salt_start = pos + head_size
+    if salt_start + SALT3_SIZE > len(data):
+        return None
+    first_salt = data[salt_start : salt_start + SALT3_SIZE]
+
+    last = data.rfind(first_salt, salt_start)
+    if last < 0:
+        return None
+    behind = data[last + SALT3_SIZE :]
+    if archive.volume and len(behind) >= 32:
+        enc_data = behind[:32]
+    else:
+        enc_data = behind[:16]
+    if len(enc_data) < 16:
+        return None
+    return f"$rar$30$*0*{first_salt.hex()}*{RAR30_HEADER_CRC:08x}*{len(enc_data):x}*{len(enc_data):x}*0*{enc_data.hex()}$/rar$"
 
 
 def line_rar30_data(data: bytes, entry: Entry) -> str | None:
     """Type 1 of $rar$30$: the whole encrypted entry and the CRC32 of the file."""
+    if not entry.salt:
+        return None
+
     start = entry.data_offset
     size = entry.compressed_size
 
@@ -770,7 +826,11 @@ def line_legacy(data: bytes, entry: Entry) -> str | None:
 def line_for_entry(data: bytes, entry: Entry) -> str | None:
     """Return the line for one entry, by its encryption."""
     if entry.encryption == CRYPT_RAR50:
-        return line_rar50_pswcheck(entry) if entry.has_psw_check else line_rar50_data(data, entry)
+        return (
+            line_rar50_pswcheck(entry)
+            if entry.has_psw_check
+            else line_rar50_data(data, entry)
+        )
     if entry.encryption == CRYPT_RAR30:
         return line_rar30_data(data, entry)
     if entry.encryption in (CRYPT_RAR15, CRYPT_RAR20):
@@ -781,7 +841,7 @@ def line_for_entry(data: bytes, entry: Entry) -> str | None:
 def lines_header_encrypted(data: bytes, archive: Archive) -> list[str]:
     """Return the one line of an archive with encrypted headers."""
     if archive.version == FORMAT_RAR15:
-        line = line_rar30_header(data)
+        line = line_rar30_header(data, archive)
         return [] if line is None else [line]
 
     for entry in archive.entries:
@@ -799,7 +859,9 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
     version = rar_format(data)
 
     if version == FORMAT_RAR14:
-        notes.append("RAR 1.3 and 1.4 archives have no hash, their key is short enough to search")
+        notes.append(
+            "RAR 1.3 and 1.4 archives have no hash, their key is short enough to search"
+        )
         return []
 
     archive = parse_rar3(data) if version == FORMAT_RAR15 else parse_rar5(data)
@@ -821,7 +883,9 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
 
     if not candidates:
         if whole_entry_missing:
-            notes.append("the encrypted entry continues in another volume, a hash needs the volume that holds the whole entry")
+            notes.append(
+                "the encrypted entry continues in another volume, a hash needs the volume that holds the whole entry"
+            )
         return []
 
     candidates.sort()
@@ -844,7 +908,9 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
 
 def main() -> int:
     """Write the hash lines of every archive named on the command line."""
-    parser = argparse.ArgumentParser(description="Write the hashcat lines of password protected RAR archives, for modes 46500 (RAR 1.5), 46600 (RAR 2.0), 46700 (RAR 3.x to 4.x) and 46800 (RAR 5 and 7).")
+    parser = argparse.ArgumentParser(
+        description="Write the hashcat lines of password protected RAR archives, for modes 46500 (RAR 1.5), 46600 (RAR 2.0), 46700 (RAR 3.x to 4.x) and 46800 (RAR 5 and 7)."
+    )
     parser.add_argument(
         "archives",
         metavar="ARCHIVE",
