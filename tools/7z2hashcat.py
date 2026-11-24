@@ -165,6 +165,11 @@ START_DATA = 1024 * 1024
 
 MAX_UNPACK = 64 * 1024 * 1024
 
+# A CRC-32 on fewer than this many bytes has fewer possible inputs than the CRC has values, so it
+# does not fully confirm the password.  Rank these below folders with a full CRC.
+
+FULL_CRC_BYTES = 4
+
 # A branch converter looks this far past the bytes it has been asked for.
 
 FILTER_LOOKAHEAD = 16
@@ -881,8 +886,14 @@ def parse(data: bytes) -> tuple[int, Streams, bool]:
 
 def order(plan: Plan) -> tuple[int, int, int, int]:
     """Rank a folder, best first."""
+    if plan.crc is not None and plan.crc_len >= FULL_CRC_BYTES:
+        tier = 0
+    elif plan.crc is None:
+        tier = 1
+    else:
+        tier = 2
     return (
-        0 if plan.crc is not None else 1,
+        tier,
         len(plan.streams),
         plan.crc_len,
         sum(stream.packed for stream in plan.streams),
