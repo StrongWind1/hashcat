@@ -896,10 +896,14 @@ def hashes_of(data: bytes, all_hashes: bool, notes: list[str]) -> list[str]:
         entry = archive.entries[index]
         name = entry.name.decode("utf-8", "replace")
         if rank[0] == TIER_UNUSABLE:
+            if all_hashes and entry.encryption == CRYPT_RAR50:
+                data_line = line_rar50_data(data, entry)
+                if data_line is not None and data_line not in lines:
+                    lines.append(data_line)
+                    continue
             notes.append(f"{name}: {why_no_hash(entry, rank[1])}")
             continue
         line = line_for_entry(data, entry)
-        # Entries that share a salt and a check value give the same line, which is written once.
         if line is not None and line not in lines:
             lines.append(line)
 
